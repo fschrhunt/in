@@ -12,7 +12,7 @@ import unittest
 from urllib.parse import urlencode, urlsplit
 
 from fixtures import oauth
-from prove import Proof, wait_file
+from prove import Proof, tailscale_identity, wait_file
 
 
 class ProofTests(unittest.TestCase):
@@ -44,6 +44,46 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(proof.cleanup(), ['laptop uninstall'])
         self.assertTrue(any('-O exit' in command for command in calls))
         self.assertFalse(any('rm -rf' in command for command in calls))
+
+    def test_et_login_requires_remote_status_file(self):
+        """A clean ET client exit alone cannot certify fixture authentication."""
+        with tempfile.TemporaryDirectory() as directory:
+            proof = Proof(argparse.Namespace(client='et', server='fixture'), Path(directory))
+            proof.mac, proof.config, proof.marker = '/tmp/fixture', '/tmp/fixture/config', '/tmp/fixture/marker'
+            proof.prefix, proof.et_mac_port = '', 12345
+
+            def successful_et(_command):
+                """Return a client exit without any remote fixture completion."""
+                return subprocess.CompletedProcess([], 0, '{"status": 0}', '')
+
+            proof.laptop = successful_et
+            with self.assertRaisesRegex(RuntimeError, 'ET fixture login failed'):
+                proof.cli('login', directory, 'dynamic-port')
+
+    def test_tailscale_requires_canonical_magicdns_identity(self):
+        """Only a resolved MagicDNS host and simple user may enter private SSH config."""
+        self.assertEqual(tailscale_identity('hostname host.tail.ts.net.\nuser fixture\n'),
+                         ('host.tail.ts.net', 'fixture'))
+        with self.assertRaisesRegex(RuntimeError, 'MagicDNS'):
+            tailscale_identity('hostname 100.100.0.1\nuser fixture\n')
+        with self.assertRaisesRegex(RuntimeError, 'simple SSH user'):
+            tailscale_identity('hostname host.tail.ts.net\nuser bad name\n')
+
+    def test_tailscale_remote_uses_canonical_wrapper_destination(self):
+        """Remote fixture commands must enter Tailscale with the dotted target first."""
+        proof = Proof(argparse.Namespace(client='tailscale'), Path('/unused'))
+        proof.tailscale_target, proof.config, proof.prefix = 'fixture@host.tail.ts.net.', '/tmp/ssh.conf', ''
+        commands = []
+
+        def laptop(command):
+            """Capture the private wrapper invocation without opening a connection."""
+            commands.append(command)
+            return subprocess.CompletedProcess([], 0,
+                                               json.dumps({'status': 0, 'stdout': 'ok', 'stderr': ''}), '')
+
+        proof.laptop = laptop
+        self.assertEqual(proof.remote('printf ok').stdout, 'ok')
+        self.assertIn('tailscale ssh fixture@host.tail.ts.net. -F /tmp/ssh.conf ', commands[0])
 
     def test_provider_requires_pkce_redirect_and_one_use_code(self):
         """A successful fixture exchange must mean PKCE and redirect binding were checked."""

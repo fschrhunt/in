@@ -1,8 +1,11 @@
 # Architecture
 
-One Go binary provides setup/management plus three internal roles: laptop
-coordinator, remote browser relay, and a short-lived callback stream helper.
-System SSH handles all authentication and encryption. No private key material
+One Go binary provides setup/management, a laptop coordinator, a remote browser
+relay and callback stream helpers. The coordinator uses `callbackTransport.Open`
+for each stream. SSH and ET implement that small contract; browser admission,
+loopback leases, listener ownership, privacy and cleanup are shared. SSH uses
+system OpenSSH for authentication and encryption. ET carries its own private
+session socket inside its encrypted terminal tunnel. No private key material
 passes through in.
 
 ## Startup and ownership
@@ -12,19 +15,37 @@ joins the existing master using its ControlPath and opens a remote `in relay`
 command over standard SSH stdin/stdout. Fallback network authentication is disabled
 for these internal channels; a missing master fails rather than initiating a new
 login. Setup also explicitly attaches to an already running master, since the
-installed OpenSSH bypasses LocalCommand for a multiplexed client.
+installed OpenSSH bypasses LocalCommand for a multiplexed client. The hook reads
+literal `-S` and `-o ControlPath` overrides from its owning SSH process, including
+Kitty's default shared socket, without changing client configuration.
 
-The relay creates a mode-0600 Unix socket inside a mode-0700 account directory,
-named from a digest of SSH_CONNECTION. That value identifies a transport, not a
-shell: shells on the same master correctly share the same laptop destination.
-Different laptops have different authenticated transport tuples. A lock prevents
-two owners from replacing one another's socket. Only a lock owner removes a stale
-socket. No SSH control socket or agent socket is forwarded to the remote host.
+The relay creates a mode-0600 Unix socket inside a mode-0700 account directory.
+The laptop stores a random logical session ID per ControlPath. A newly authenticated master binds its exact `SSH_CONNECTION` tuple to
+that ID. The remote account retains up to 128 exact tuple aliases so a surviving
+Mosh shell can still find the laptop after master replacement and a fresh login.
+Inactive aliases are intentionally unavailable to another ID; ambiguous or
+invalid bindings fail closed. A recycled tuple is not reassigned to another ID,
+because an old Mosh shell may still carry that tuple. The authenticated hook refreshes the relay on a
+new master. It does not start unattended authentication or replay a previous URL.
+A lock prevents competing relay owners. No SSH control or agent socket is
+forwarded to the remote host.
 
-A remote browser helper chooses that socket from its current SSH_CONNECTION. In
-tmux it requires one attached client and reads the session's current connection
-value rather than trusting an old pane environment. This does not identify an
-initiating client when several are attached; that case fails explicitly.
+A remote browser helper selects a relay through `SSH_CONNECTION` or
+`IN_SESSION_SOCKET`. In tmux it requires one attached client, checks that client's
+process ownership, and reads only those two routing variables from its live
+`/proc` environment. It refuses a missing pane or ambiguous clients and never
+prints the process environment.
+
+The installed ET 7+ function adds a native reverse Unix socket to an otherwise
+ordinary ET terminal. The remote shell receives `IN_SESSION_SOCKET`; the remote
+agent starts on the first browser request. Standard-library HTTP/2 runs over that
+private socket inside ET's encrypted tunnel. Two paired request streams allow
+each callback direction to half-close independently. No extra TLS, key exchange
+or general client plugin layer is added. `in stop` closes ET bridge resources
+without ending the terminal. Existing custom `et` functions and aliases remain
+untouched. A future terminal integration needs authenticated command streams or
+an encrypted forwarded private Unix socket, plus a local owner for its terminal
+session; setting an environment variable alone is insufficient.
 
 ## Request and callback
 
@@ -44,8 +65,9 @@ binding. Missing recognition defaults to refusal, including requests from older
 helpers. Ordinary non-loopback web opens have no callback route. See the
 [local development boundary](usage.md#local-development-boundary).
 
-For each browser TCP connection, the coordinator opens another command channel
-on the same SSH master. The remote stream helper inspects the requested Linux
+For each browser TCP connection, the coordinator opens a transport stream: an
+SSH command on the same master or paired ET HTTP/2 requests. The remote helper
+inspects the requested Linux
 socket-table endpoint, requiring an unambiguous private listener owned by the
 remote account. For an explicit OAuth redirect, the hook pins the socket inode
 already listening at that endpoint, along with its resolved numeric address. This
@@ -55,7 +77,7 @@ that same socket before and after connecting, before sending any callback bytes.
 A closed or replaced socket invalidates the request.
 
 If the listener has not started yet, the hook instead snapshots ancestor PIDs and
-Linux start times, stopping at the supported SSH/Mosh/tmux terminal server. A late
+Linux start times, stopping at the supported SSH/Mosh/ET/tmux terminal server. A late
 listener must be held by one of those still-live ancestors. A detached opener may
 change POSIX session IDs without losing its CLI parent. A background service must
 start its callback listener before requesting the browser.
@@ -67,8 +89,7 @@ naming another service. Laptop selection still comes exclusively from the browse
 request's current SSH/tmux session, never the listener's process environment.
 It retries establishment for up to ten seconds without consuming
 an accept for a readiness probe. Then it reports readiness and relays raw bytes.
-This small command helper is needed for late listeners and listener ownership;
-there is no custom general-purpose transport multiplexer.
+The same listener checks and byte handling apply to both transports.
 
 The browser request and CLI response retain their bytes, including POST bodies
 and half-close behavior. There is no HTTP parsing, token exchange, credential
@@ -88,7 +109,7 @@ validation remain the CLI's responsibility. in never replays callback bytes.
 
 ## Bounds and cleanup
 
-Wire version 2 carries socket references; mixed versions fail explicitly. Update
+Wire version 3 carries session bindings and socket references; mixed versions fail explicitly. Update
 both installations together. Control messages are limited to 128 KiB, URLs to 64 KiB, concurrent routes to 32,
 and concurrent callback streams per route to eight. A relay admits at most 32
 active browser submissions and callback watches combined. A connection coordinator
@@ -106,7 +127,8 @@ their control stream ends. Advisory
 locks are released by the OS. Stopping in never sends an exit command to the
 user's SSH master. Stop waits up to eight seconds for owned process locks to be
 released; uninstall reports a failure rather than deleting files before teardown.
-Process restart/disconnect does not reopen saved URLs.
+Process restart/disconnect does not reopen saved URLs. Control heartbeats run
+every 15 seconds; 90 seconds without a valid reply ends a detached relay.
 
 Remote setup supplies BROWSER and a dedicated PATH directory containing only an
 xdg-open shim. Both activate only in SSH shells without an explicit user browser
@@ -115,15 +137,17 @@ its own PATH entry and BROWSER removed, preserving arguments without evaluation.
 A captured login failure is never retried through another opener. Absolute or
 bundled openers and printed-only URLs remain outside these interception points.
 
-There is currently no automatic bridge transport reconnect. Ordinary Mosh roaming
-may leave its terminal alive after the SSH bridge has died. Reconnect/rebind work
-must preserve the authenticated relationship to the old shell and account for
-interactive SSH authentication; it is not silently approximated by host/IP guesses.
+An old Mosh shell can regain forwarding after a fresh authenticated SSH hook on
+the same logical binding. Until then a dead master provides no callback channel;
+in never silently creates a new SSH login. ET's private session tunnel can resume
+with its terminal. Neither path resubmits a URL or callback after uncertain delivery.
 
 ## Setup transactions
 
 Runtime startup registers its socket while holding the setup lock and requires a
-current installation manifest. Uninstall holds that lock through teardown, so a
+current installation manifest. Stop advances a private startup generation while holding that lock; delayed
+children from the previous generation cannot register afterward. Uninstall holds
+that lock through teardown, so a
 late coordinator cannot register after its files are removed. Stop is admitted
 separately from the relay's request capacity.
 

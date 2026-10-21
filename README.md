@@ -2,17 +2,18 @@
 
 Remote login, in your browser.
 
-Install once on your laptop and server. Keep using `ssh`, `mosh` and your CLI's
+Install once on your laptop and server. Keep using `ssh`, `mosh`, `et` and your CLI's
 normal login command. in opens the laptop browser and carries localhost callbacks
-back to the remote CLI, using your existing SSH authentication. Forwarding is
+back to the remote CLI through the current authenticated terminal session. Forwarding is
 login-only: dev-server browser opens do not create tunnels. Browser requests can
 come through BROWSER or xdg-open, and existing private callback listeners can run
 in the CLI or its background service. No CLI-name allowlist is needed for explicit
 OAuth redirects.
 
-**Experimental.** Tested with real SSH/Mosh sessions, two Apple Silicon Macs,
-and a macOS browser reaching a Linux callback listener. Completed provider
-logins still need validation. See the [compatibility record](docs/compatibility.md).
+**Experimental.** Tested with real SSH/Mosh sessions, native ET 7.0.0 on Linux and Apple Silicon macOS,
+two Apple Silicon Macs, and a macOS browser reaching a Linux callback listener.
+Completed provider logins still need validation. See the
+[compatibility record](docs/compatibility.md).
 
 ## Start
 
@@ -43,6 +44,9 @@ wrangler login
 
 Mosh uses a small installed shell function to select the startup mode that keeps
 SSH connection sharing available. Your command remains `mosh my-server`.
+ET 7 or newer uses an installed `et` function to carry a private session socket;
+your command remains `et my-server`. Existing custom functions and aliases are
+left alone. See [usage](docs/usage.md) for setup and client limits.
 No private keys are read by in, and no new keys or agent forwarding are needed.
 
 Read [setup and usage](docs/usage.md) before installing: setup makes explicit,
@@ -54,6 +58,7 @@ It preserves existing browser overrides and refuses conflicting SSH login hooks.
 ```sh
 ./x check
 ./x integration
+./x clients
 ./x release-check
 ```
 
@@ -62,6 +67,7 @@ For a complete fixture login on a real Mac/Linux pair, run
 for prerequisites, the actual-browser option and what this proves.
 
 The integration suite uses disposable keys and a real SSH server, Mosh and tmux.
+The native client proof additionally needs ET, Kitty, Xvfb and bubblewrap on Linux.
 Python 3.9+ and those executables are needed for integration; normal binaries
 have no Go or Python runtime dependency. Go source has no third-party modules.
 

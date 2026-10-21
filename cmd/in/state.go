@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -115,13 +117,70 @@ func saveDiagnostic(message string) {
 	_ = atomicWrite(filepath.Join(root, "last-error"), []byte(message+"\n"), 0600)
 }
 
-// startupGate serializes runtime registration with setup/uninstall and rejects removed installs.
+// startupStamp reads the private stop generation; a missing file is the initial generation.
+func startupStamp(root string) (string, error) {
+	path := filepath.Join(root, "start-stamp")
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return "0", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("cannot read startup stamp")
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 33 {
+		return "", fmt.Errorf("startup stamp is not an owned private file")
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(owner.Uid) != os.Getuid() {
+		return "", fmt.Errorf("startup stamp belongs to another account")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 34))
+	if err != nil {
+		return "", fmt.Errorf("cannot read startup stamp")
+	}
+	stamp := strings.TrimSuffix(string(data), "\n")
+	if stamp != "0" && (len(stamp) != 32 || strings.Trim(stamp, "0123456789abcdef") != "") {
+		return "", fmt.Errorf("invalid startup stamp")
+	}
+	return stamp, nil
+}
+
+// withStartupStampEnv replaces an inherited launch stamp for a detached child.
+func withStartupStampEnv(env []string, stamp string) []string {
+	result := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, "IN_START_STAMP=") {
+			result = append(result, entry)
+		}
+	}
+	return append(result, "IN_START_STAMP="+stamp)
+}
+
+// startupGate serializes registration and rejects launches from an earlier stop generation.
 func startupGate(parent context.Context, root string) (*os.File, error) {
+	expected := os.Getenv("IN_START_STAMP")
+	if expected == "" {
+		var err error
+		expected, err = startupStamp(root)
+		if err != nil {
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	for {
 		gate, err := lock(filepath.Join(root, "setup.lock"))
 		if err == nil {
+			current, stampErr := startupStamp(root)
+			if stampErr != nil || current != expected {
+				gate.Close()
+				if stampErr != nil {
+					return nil, stampErr
+				}
+				return nil, fmt.Errorf("bridge startup was cancelled by stop")
+			}
 			installation, err := readInstallation(root)
 			if err != nil || len(installation.Files) == 0 {
 				gate.Close()

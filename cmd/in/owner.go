@@ -58,7 +58,7 @@ func browserOwners() (string, error) {
 		}
 		// A detached opener may start a new POSIX session while retaining its CLI parent.
 		// Stop at supported terminal servers rather than equating session ID with launch ownership.
-		if strings.HasPrefix(name, "sshd") || strings.HasPrefix(name, "tmux") || name == "mosh-server" || name == "tailscaled" {
+		if strings.HasPrefix(name, "sshd") || strings.HasPrefix(name, "tmux") || name == "mosh-server" || name == "tailscaled" || name == "etterminal" || name == "etserver" {
 			break
 		}
 		refs = append(refs, strconv.Itoa(ref.pid)+":"+ref.start)

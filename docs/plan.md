@@ -1,14 +1,22 @@
 # Implementation plan
 
-Status: first implementation exists. Linux SSH/Mosh fixtures, native checks on
-two Apple Silicon Macs and a real macOS browser callback pass. The repeatable
-[OAuth proof](testing.md) also passes on a Mac/Linux pair, including credential
-persistence and fresh-process authentication against a controlled provider. Five installed
-CLI launch paths were observed; completed provider logins and automatic transport
-recovery remain unverified or unimplemented.
+Status (2026-10-21): SSH and ET share callback admission and stream handling.
+Twenty-one real SSH/Mosh integration cases pass, including fresh-master recovery for
+a surviving Mosh shell. Native ET 7.0.0 on Linux passed a TCP-drop and SSH-master-exit
+fixture callback; Kitty 0.45.0 under Xvfb also passed with default connection sharing. The repeatable
+[OAuth proof](testing.md) passes on a Mac/Linux pair over a confirmed Tailscale
+SSH server, including credential persistence and fresh-process authentication
+against a controlled provider. Five CLI launch paths were observed. Completed
+provider consent logins and Intel macOS runtime remain unverified. ET 7.0.0 on
+Apple Silicon macOS and the native `tailscale ssh` wrapper also passed the full
+fixture OAuth proof.
 Current behavior is documented in [architecture](architecture.md),
 [usage](usage.md) and [compatibility](compatibility.md).
 See the [architecture audit](architecture-audit.md) for evidence and corrections.
+
+The remaining sections preserve the original research plan and hypotheses as
+historical context. Statements there about candidate designs, missing recovery
+or pending SSH jump-host tests do not describe the current implementation.
 
 ## Product contract
 

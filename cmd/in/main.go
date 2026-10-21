@@ -1,10 +1,12 @@
-// Command in connects remote browser requests to the laptop over existing SSH.
+// Command in connects remote browser requests to the laptop over its authenticated terminal session.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -25,6 +27,10 @@ func main() {
 		if len(args) > 0 && args[0] == "attach" {
 			saveDiagnostic(err.Error())
 		}
+		var exit *exec.ExitError
+		if len(args) > 0 && args[0] == "terminal" && errors.As(err, &exit) {
+			os.Exit(exit.ExitCode())
+		}
 		fmt.Fprintln(os.Stderr, "in:", err)
 		os.Exit(1)
 	}
@@ -33,7 +39,7 @@ func main() {
 // run dispatches public management commands and the private SSH/browser entry points.
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Print("in — remote login, in your browser.\n\nSetup once:\n  ./in setup remote\n  ./in setup laptop HOST\n\nManage:\n  ./in status\n  ./in stop\n  ./in uninstall\n  ./in --version\n\nThen use your normal ssh, mosh and CLI commands.\n")
+		fmt.Print("in — remote login, in your browser.\n\nSetup once:\n  ./in setup remote\n  ./in setup laptop HOST\n\nManage:\n  ./in status\n  ./in stop\n  ./in uninstall\n  ./in --version\n\nThen use your normal ssh, mosh, et and CLI commands.\n")
 		return nil
 	}
 	switch args[0] {
@@ -67,6 +73,16 @@ func run(ctx context.Context, args []string) error {
 		return browse(ctx, args[1])
 	case "open":
 		return open(ctx, args[1:])
+	case "terminal":
+		if len(args) < 2 || args[1] != "et" {
+			return fmt.Errorf("terminal hook expects an ET command")
+		}
+		return runTerminal(ctx, args[2:])
+	case "relay-tunnel":
+		if len(args) != 2 {
+			return fmt.Errorf("private session relay expects one socket")
+		}
+		return runTunnelRelay(ctx, args[1])
 	case "connect":
 		return connect(args[1:])
 	case "attach":
@@ -77,10 +93,14 @@ func run(ctx context.Context, args []string) error {
 		}
 		return remoteRelay(ctx)
 	case "pipe":
-		if len(args) != 4 {
+		if len(args) != 4 && len(args) != 5 {
 			return fmt.Errorf("invalid callback endpoint")
 		}
-		return remotePipe(ctx, args[1], args[2], args[3])
+		session := ""
+		if len(args) == 5 {
+			session = args[4]
+		}
+		return remotePipe(ctx, args[1], args[2], args[3], session)
 	default:
 		return fmt.Errorf("unknown command; run ./in --help")
 	}

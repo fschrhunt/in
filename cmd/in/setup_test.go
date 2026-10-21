@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -217,6 +219,114 @@ func TestStartupCannotCrossUninstall(t *testing.T) {
 	}
 }
 
+// TestStopInvalidatesDelayedStartup rejects a child launched before stop after the gate reopens.
+func TestStopInvalidatesDelayedStartup(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "in")
+	t.Setenv("IN_HOME", root)
+	if err := setup(context.Background(), []string{"remote", "--shell-file", filepath.Join(t.TempDir(), "rc")}); err != nil {
+		t.Fatal(err)
+	}
+	stamp, err := startupStamp(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("IN_START_STAMP", stamp)
+	gate, err := startupGate(context.Background(), root)
+	if gate != nil {
+		gate.Close()
+	}
+	if err == nil {
+		t.Fatal("delayed startup crossed stop")
+	}
+}
+
+// TestStopHoldsRegistrationGate keeps a pending registration out until its scan completes.
+func TestStopHoldsRegistrationGate(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "in")
+	t.Setenv("IN_HOME", root)
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "install.json"), []byte(`{"Files":[{"Path":"fixture"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "l-fixture")
+	owner, err := lock(path + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	listener, err := socketListener(path + ".sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	stopping := make(chan error, 1)
+	go func() { stopping <- stop() }()
+	var conn net.Conn
+	conn, err = listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	stamp, err := startupStamp(root)
+	if err != nil || stamp == "0" {
+		t.Fatalf("stop did not fence registration: %q, %v", stamp, err)
+	}
+	registered := make(chan error, 1)
+	go func() {
+		gate, err := startupGate(context.Background(), root)
+		if gate != nil {
+			gate.Close()
+		}
+		registered <- err
+	}()
+	select {
+	case <-registered:
+		t.Fatal("registration bypassed stop gate")
+	case <-time.After(50 * time.Millisecond):
+	}
+	owner.Close()
+	if err := <-stopping; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-registered; err != nil {
+		t.Fatal("fresh startup rejected after stop:", err)
+	}
+}
+
+// TestStopIgnoresRelayStartupMutex only waits on registered relay identity locks.
+func TestStopIgnoresRelayStartupMutex(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "in")
+	t.Setenv("IN_HOME", root)
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := lock(filepath.Join(root, "a-fixture.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	legacy, err := lock(filepath.Join(root, "r-fixture.start.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	done := make(chan error, 1)
+	go func() { done <- stop() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stop waited on a relay startup mutex")
+	}
+}
+
 // TestRemoteSetupLeavesLocalTmuxAlone avoids enabling remote browsing solely because tmux exists.
 func TestRemoteSetupLeavesLocalTmuxAlone(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "in")
@@ -276,5 +386,37 @@ func TestRemoteSetupGuardsOpenersPATH(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(openers, "xdg-open")); !os.IsNotExist(err) {
 		t.Fatal("uninstall retained the owned xdg-open shim")
+	}
+}
+
+// TestSetupStopsOldWireBeforeUpgrade lets the old binary tear down its own protocol safely.
+func TestSetupStopsOldWireBeforeUpgrade(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "in")
+	t.Setenv("IN_HOME", root)
+	shell := filepath.Join(t.TempDir(), "rc")
+	args := []string{"remote", "--shell-file", shell}
+	if err := setup(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(root, "bin", "in")
+	marker := filepath.Join(root, "old-stopped")
+	old := []byte("#!/bin/sh\n[ \"$1\" = stop ] || exit 1\nprintf stopped > " + shellQuote(marker) + "\n")
+	if err := os.WriteFile(installed, old, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := readInstallation(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record(&manifest, installedFile{Path: installed, Hash: hashBytes(old)})
+	data, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(root, "install.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("previous protocol was not stopped before upgrade")
 	}
 }

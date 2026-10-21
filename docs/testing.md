@@ -12,6 +12,14 @@ Run `./x check`. For transport, session routing or setup changes, also run
 order, port conflicts, privacy, ambiguous sessions, SSH/Mosh/tmux and failures.
 CI runs these checks and `./x release-check`; it needs no personal accounts.
 
+For native terminal clients on Linux, run `./x clients`. It uses disposable SSH
+keys, configuration and homes, plus real ET/Kitty executables. It requires the
+integration prerequisites, `et`, `etserver`, `etterminal`, `kitty`, `kitten`,
+Xvfb and bubblewrap. The ET 7.0.0 test has passed after a TCP drop and SSH
+master exit, with a callback from the surviving terminal. Kitty 0.45.0 under Xvfb has also passed using its default connection sharing.
+ET 7.0.0 on Apple Silicon macOS has also passed the full OAuth proof.
+Intel macOS runtime remains untested.
+
 ## Native OAuth proof
 
 From the Linux checkout, run:
@@ -27,11 +35,37 @@ connection reaches this checkout's temporary files. Linux needs Go, Python 3.9+,
 SSH and SCP; the Mac needs Python 3.9+ and system SSH. No Go installation is needed
 on the Mac: the script builds both binaries from the current Linux checkout.
 
+To use a Mac ET 7+ terminal for every fixture login, add `--client et`:
+
+```sh
+./x prove --laptop mini --server server --client et --report /tmp/in-et-proof.json
+```
+
+This requires ET on the Mac and `etserver`, `etterminal` and bubblewrap on Linux.
+The test daemon listens only on Linux loopback; a test-owned SSH forward exposes
+its ET endpoint on Mac loopback. Callback delivery still uses ET's own private
+session tunnel. The separate `./x clients` test proves ET reconnect behavior after
+its TCP connection and bootstrap SSH master are interrupted. Both tests hide the
+remote home without changing `HOME`; no personal configuration or credentials
+are used by the fixture CLI.
+
+Use `--client tailscale` to start a fresh native `tailscale ssh` connection and
+run the same OAuth cases. This proof requires the Mac alias to resolve to a
+MagicDNS `.ts.net` hostname. It opts in the exact canonical destination in the
+temporary config and preserves Tailscale's own host-key verification. It does
+not weaken strict checking or reuse the initial ordinary SSH master as proof
+that the wrapper established a new connection.
+
 The script installs into private temporary directories, includes your existing
 SSH configuration in a separate test config and creates its own SSH master. It
 never edits personal shell or SSH files, reads private keys, forwards an agent,
 or uses real provider credentials. Existing hooks that cannot coexist with in
 remain a setup failure, rather than being overwritten for the test.
+The current native proof passed with `--laptop mini --server server`; the server
+banner identified Tailscale SSH. This shows a real Tailscale SSH server path,
+not provider consent or a general claim about every Tailscale client setup.
+The native `tailscale ssh` wrapper may use a canonical MagicDNS destination with
+a trailing dot. Laptop setup must opt in that actual SSH destination.
 
 The proof must:
 

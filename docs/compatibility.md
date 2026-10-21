@@ -44,7 +44,7 @@ fallbacks or change provider-specific authentication.
 
 ## Executed integration coverage
 
-`./x integration` runs on Linux with actual OpenSSH 10.2p1, Mosh 1.4.0 and tmux
+`./x integration` now covers 21 cases and runs on Linux with actual OpenSSH 10.2p1, Mosh 1.4.0 and tmux
 available in the development environment. It creates disposable fixture keys,
 an isolated SSH configuration/server and synthetic browser/provider callbacks.
 No personal SSH configuration, keys, CLI credentials or browser session is used.
@@ -55,11 +55,14 @@ root or a container. The adapter is test code, not a runtime compatibility optio
 This proves the transport and installed-hook path; it is not a substitute for
 macOS/Linux testing on separate machines.
 
-The suite covers late listener startup, unchanged POST callback/response bytes,
+The 21 real SSH/Mosh integration cases cover late listener startup, unchanged POST callback/response bytes,
 Mosh handoff, BROWSER and PATH-resolved xdg-open launches, a single attached tmux session, two laptops connecting to one
 account, browser preconnects, detached openers, refusal of dev-server opens, occupied laptop ports, missing remote helpers,
 existing SSH masters, rejection of unrelated listeners during late startup, cleanup and
-unaffected file transfer. Cancellation is also checked with an active silent
+unaffected file transfer, literal SSH control-socket overrides, real ProxyJump
+and `ProxyCommand -W`, a Mosh shell surviving master replacement and logging in
+after a fresh authenticated hook, and refusal to fall back to authentication
+when the master is missing. Cancellation is also checked with an active silent
 callback, including remote helper cleanup while the SSH master survives. Focused Go tests
 cover URL boundaries, socket-table decoding, route cancellation, reversible
 setup, partially edited ownership markers, PID reuse, startup/uninstall races
@@ -104,10 +107,11 @@ This is a synthetic OAuth request, not an OpenCode authentication claim.
   servers retain their normal forwarding workflow.
 - Intel macOS runtime and older macOS system-SSH compatibility; no minimum
   OpenSSH version is claimed yet.
-- Mosh transport recovery after network loss. The terminal can survive while the
-  SSH bridge does not; automatic reconnect/rebinding is not implemented.
-- SSH jump-host and interactive MFA/hardware-key setups need real runtime tests;
-  the implementation delegates existing authentication to system SSH.
+- A surviving Mosh shell regains its bridge only after a fresh authenticated
+  hook binds the replacement master to its logical session. There is no unattended
+  authentication or replay after an uncertain callback delivery.
+- ProxyJump and `ProxyCommand -W` passed real SSH fixture tests. Provider-managed
+  Cloudflare or Teleport MFA and hardware-key setups have not been live checked.
 - Existing LocalCommand hooks, ambiguous multi-client tmux, wildcard callback
   listeners, background services that start listening only after the browser hook,
   hidden redirects, printed-only URLs and launchers bypassing both BROWSER and PATH xdg-open
@@ -117,6 +121,19 @@ This is a synthetic OAuth request, not an OpenCode authentication claim.
 
 The working default path is broader than a Wrangler-specific integration, but
 these limits prevent describing it as universal remote authentication support.
+
+## Native transport evidence
+
+`./x prove --laptop mini --server server` passed on the new architecture. The
+server banner confirmed Tailscale SSH; this was an actual SSH server path.
+The native macOS Tailscale 1.104.2 `tailscale ssh` wrapper also passed the full
+OAuth proof on a fresh connection with its own host-key verification. Native ET 7.0.0 on Linux passed an isolated
+terminal test: after its TCP connection dropped and the SSH master exited, the
+surviving terminal delivered a new fixture callback. Kitty 0.45.0 under Xvfb passed with its default connection sharing and a
+late callback listener, using its own chosen SSH socket. `./x clients` is the
+isolated native ET/Kitty proof and requires Linux, `et`, `etserver`, `etterminal`,
+`kitty`, `kitten`, Xvfb, bubblewrap and the integration prerequisites. ET 7.0.0 on Apple Silicon macOS also completed the full fixture OAuth proof
+against Linux. Intel macOS runtime remains unverified. Kitty was exercised on Linux; native Kitty on macOS remains unverified.
 
 ## Repeatable native OAuth proof
 

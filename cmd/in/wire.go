@@ -9,10 +9,10 @@ import (
 	"sync"
 )
 
-const wireVersion = 2
+const wireVersion = 3
 const requestLimit = 32
 
-// message carries browser requests and acknowledgements, never callback payloads.
+// message carries browser requests, stream metadata and keepalives, never callback payloads.
 type message struct {
 	Version int    `json:"version"`
 	Kind    string `json:"kind"`
@@ -21,6 +21,9 @@ type message struct {
 	Error   string `json:"error,omitempty"`
 	Owners  string `json:"owners,omitempty"`
 	Rclone  bool   `json:"rclone,omitempty"`
+	Session string `json:"session,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Port    string `json:"port,omitempty"`
 }
 
 // wire frames bounded JSON messages and serializes writes from concurrent requests.
