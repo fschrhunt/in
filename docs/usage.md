@@ -91,12 +91,22 @@ There is no port scanner or command monitor. Starting a dev server does not caus
 an action. Laptop setup does not replace the local browser launcher, and remote
 setup does not enable its hook in a local shell without SSH_CONNECTION.
 
-The current bridge forwards explicit loopback `redirect_uri` values and direct
-loopback browser URLs. The latter do **not** prove that the request is a login:
-a remote dev tool that opens its localhost page through BROWSER also requests a
-three-minute route. This is a known product boundary under review, not a supported
-dev-server forwarding feature. A login-only policy needs verified direct-flow
-recognition or an explicit fallback; SSH context alone cannot distinguish them.
+Automatic forwarding is login-only. The generic path requires a non-loopback
+authorization URL with one `response_type=code`, a nonempty `client_id`, and an
+explicit loopback `redirect_uri`. A redirect parameter alone is insufficient.
+
+Direct localhost pages need verified login support. The current exception is
+rclone's `http://127.0.0.1:53682/auth?state=...` entry point: the browser launcher
+must descend from the live rclone executable that owns that private listener.
+The route remains pinned to that process. Matching the URL shape alone is not
+enough. Other direct localhost opens are refused before opening the laptop browser
+or reserving a port, including dev pages with `state` or `redirect_uri` parameters.
+The remote hook returns a fixed diagnostic; the original server remains untouched.
+Use your existing dev-server forwarding workflow for those pages.
+
+Ordinary non-loopback web opens retain their browser handoff and create no tunnel.
+There is no general plugin framework or per-command wrapper. New direct login
+exceptions require observed tool behavior and focused tests.
 
 ## Failures and limits
 
@@ -119,8 +129,8 @@ recognition or an explicit fallback; SSH context alone cannot distinguish them.
   reads its current session SSH_CONNECTION at request time. Configure tmux's
   update-environment to retain SSH_CONNECTION if you have overridden its defaults.
   Two clients attached to one session are intentionally refused.
-- **Hidden/bypassed callback:** in supports explicit redirect_uri and direct
-  loopback browser URLs. It does not infer hidden endpoints, scrape terminal
+- **Hidden/bypassed callback:** in supports explicit OAuth authorization-code redirects and the
+  verified rclone direct login entry point. It does not infer hidden endpoints, scrape terminal
   output, or change device flows. A remote callback address different from the
   advertised address is not automatically discovered.
 - **Detached launchers:** acknowledgement means in accepted responsibility, not

@@ -47,11 +47,22 @@ func browse(ctx context.Context, raw string) error {
 	if err != nil {
 		return err
 	}
+	if ep != nil && ep.Direct && !rcloneAuthURL(raw) {
+		return unrecognizedLogin()
+	}
 	owners := ""
+	rclone := false
 	if ep != nil {
 		owners, err = browserOwners()
 		if err != nil {
 			return err
+		}
+		if ep.Direct {
+			owners, err = rcloneOwner(raw, *ep, owners)
+			if err != nil {
+				return err
+			}
+			rclone = true
 		}
 	}
 	tuple, err := connection(ctx)
@@ -83,7 +94,7 @@ func browse(ctx context.Context, raw string) error {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 	w := newWire(conn, conn)
 	id := requestID()
-	if w.send(message{Kind: "open", ID: id, URL: raw, Owners: owners}) != nil {
+	if w.send(message{Kind: "open", ID: id, URL: raw, Owners: owners, Rclone: rclone}) != nil {
 		return fmt.Errorf("browser request could not be delivered")
 	}
 	reply, err := w.receive()

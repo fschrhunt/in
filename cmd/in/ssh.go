@@ -171,7 +171,7 @@ func attach(parent context.Context, args []string) error {
 			reply.Error = "too many browser requests; wait for pending logins"
 		} else {
 			seen[m.ID] = now.Add(3 * time.Minute)
-			launch, err := b.prepare(m.URL, m.Owners)
+			launch, err := b.prepare(m.URL, m.Owners, m.Rclone)
 			if err != nil {
 				reply.Error = err.Error()
 			} else {

@@ -34,10 +34,15 @@ advertised loopback endpoint. It acknowledges ownership before opening the brows
 so a synchronous CLI can return from the hook and start its callback listener.
 The authorization URL is passed unchanged to the local opener.
 
-No command or port is watched. Browser launch is the trigger. A direct localhost
-URL is currently routed generically and can also come from a dev tool; it is not
-proof of OAuth. Separating that case without command wrappers is an outstanding
-product boundary, documented in [usage](usage.md#local-development-boundary).
+No command or port is watched. Browser launch is the trigger. Generic forwarding
+requires a non-loopback authorization URL with `response_type=code`, `client_id`
+and a loopback `redirect_uri`. Direct localhost opens are refused unless verified
+as rclone's known authorization entry point, with that rclone ancestor holding
+the listener. The remote hook sends this narrowly scoped recognition result and
+pins ownership to that process; the laptop also checks the URL shape before
+binding. Missing recognition defaults to refusal, including requests from older
+helpers. Ordinary non-loopback web opens have no callback route. See the
+[local development boundary](usage.md#local-development-boundary).
 
 For each browser TCP connection, the coordinator opens another command channel
 on the same SSH master. The remote stream helper inspects the requested Linux

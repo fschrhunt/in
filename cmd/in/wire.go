@@ -20,6 +20,7 @@ type message struct {
 	URL     string `json:"url,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Owners  string `json:"owners,omitempty"`
+	Rclone  bool   `json:"rclone,omitempty"`
 }
 
 // wire frames bounded JSON messages and serializes writes from concurrent requests.

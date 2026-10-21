@@ -44,14 +44,18 @@ func newBridge(ctx context.Context, p peer) *bridge {
 	return &bridge{ctx: ctx, cancel: cancel, peer: p, routes: map[*route]bool{}}
 }
 
-// prepare reserves all required addresses before acknowledging a browser request.
-func (b *bridge) prepare(raw, owners string) (func(), error) {
+// prepare admits recognized login routes and reserves their addresses before acknowledgement.
+// rclone means the remote hook verified its direct entry point against the owning executable.
+func (b *bridge) prepare(raw, owners string, rclone bool) (func(), error) {
 	ep, err := callback(raw)
 	if err != nil {
 		return nil, err
 	}
 	var r *route
 	if ep != nil {
+		if ep.Direct && (!rclone || !rcloneAuthURL(raw)) {
+			return nil, unrecognizedLogin()
+		}
 		if _, err := parseOwners(owners); err != nil {
 			return nil, err
 		}

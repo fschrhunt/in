@@ -4,7 +4,8 @@ Remote login, in your browser.
 
 Install once on your laptop and server. Keep using `ssh`, `mosh` and your CLI's
 normal login command. in opens the laptop browser and carries localhost callbacks
-back to the remote CLI, using your existing SSH authentication.
+back to the remote CLI, using your existing SSH authentication. Forwarding is
+login-only: dev-server browser opens do not create tunnels.
 
 **Experimental.** Tested with real SSH/Mosh sessions, two Apple Silicon Macs,
 and a macOS browser reaching a Linux callback listener. Completed provider

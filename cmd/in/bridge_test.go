@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -15,7 +16,7 @@ func TestCallbackConflictKeepsExistingListener(t *testing.T) {
 	}
 	defer existing.Close()
 	_, port, _ := net.SplitHostPort(existing.Addr().String())
-	if listeners, err := bindCallback(endpoint{"localhost", port}); err == nil {
+	if listeners, err := bindCallback(endpoint{Host: "localhost", Port: port}); err == nil {
 		for _, l := range listeners {
 			l.Close()
 		}
@@ -38,7 +39,7 @@ func TestBridgeCancellationReleasesReservedPort(t *testing.T) {
 	candidate.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	b := newBridge(ctx, peer{})
-	if _, err = b.prepare("http://"+addr+"/callback", "2:1"); err != nil {
+	if _, err = b.prepare("https://provider.invalid/authorize?response_type=code&client_id=fixture&redirect_uri="+url.QueryEscape("http://"+addr+"/callback"), "2:1", false); err != nil {
 		t.Fatal(err)
 	}
 	cancel()
@@ -48,4 +49,27 @@ func TestBridgeCancellationReleasesReservedPort(t *testing.T) {
 		t.Fatal("callback port leaked")
 	}
 	again.Close()
+}
+
+// TestUnverifiedDirectRequestsNeverReservePorts rejects dev opens, including rclone-shaped URLs without evidence.
+func TestUnverifiedDirectRequestsNeverReservePorts(t *testing.T) {
+	b := newBridge(context.Background(), peer{})
+	defer b.close()
+	for _, tt := range []struct {
+		url    string
+		rclone bool
+	}{
+		{"http://localhost:3000/", false},
+		{"http://localhost:3000/?redirect_uri=https://example.test/", false},
+		{"http://localhost:3000/?response_type=code&client_id=fixture&redirect_uri=http://localhost:4000/callback", false},
+		{"http://localhost:3000/?state=fixture", true},
+		{"http://127.0.0.1:53682/auth?state=fixture", false},
+	} {
+		if _, err := b.prepare(tt.url, "2:1", tt.rclone); err == nil {
+			t.Fatal("unverified direct request accepted")
+		}
+	}
+	if len(b.routes) != 0 {
+		t.Fatal("refused browser request reserved a callback route")
+	}
 }

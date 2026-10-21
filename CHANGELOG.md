@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Limit forwarding to explicit OAuth authorization-code requests and rclone's
+  verified direct login entry point; refuse dev-server browser opens without
+  reserving laptop ports, opening the browser or disturbing the server.
+
 - Implement the browser/callback bridge using existing authenticated SSH masters,
   private remote browser sockets and bounded raw callback channels.
 - Add reversible laptop/remote setup, Mosh startup integration, current tmux routing,

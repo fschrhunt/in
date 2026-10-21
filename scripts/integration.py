@@ -80,7 +80,7 @@ def bind():
     listener.listen()
     listener.settimeout(15)
 if not late: bind()
-url = 'https://provider.invalid/authorize?state=fixture&redirect_uri=' + quote('http://localhost:' + str(port) + '/callback', safe='')
+url = 'https://provider.invalid/authorize?response_type=code&client_id=fixture&state=fixture&redirect_uri=' + quote('http://localhost:' + str(port) + '/callback', safe='')
 if len(sys.argv) > 2 and sys.argv[2] == 'detached':
     result = subprocess.run([sys.executable, '-c', 'import os,subprocess,sys; subprocess.run([os.environ["BROWSER"],sys.argv[1]],check=True)', url], start_new_session=True, capture_output=True)
 else:
@@ -228,6 +228,38 @@ ForceCommand {self.root}/session
         self.assertEqual(result.stdout.strip(), 'authenticated fixture')
         self.assert_browser_completed()
 
+    def test_dev_browser_open_leaves_server_alone(self):
+        """A dev tool's direct localhost open must not reserve a laptop port or open its browser."""
+        marker = self.root / 'dev-ready'
+        self.write_executable('dev', '#!' + sys.executable + '\n' + '''import os, socket, subprocess, sys
+from pathlib import Path
+with socket.socket() as listener:
+    listener.bind(('127.0.0.2', int(sys.argv[1])))
+    listener.listen()
+    listener.settimeout(8)
+    result = subprocess.run([os.environ['BROWSER'], 'http://localhost:'+sys.argv[1]+'/?state=fixture'], capture_output=True)
+    if result.returncode == 0: raise SystemExit('dev URL was accepted as login')
+    Path(sys.argv[2]).touch()
+    with listener.accept()[0]: pass
+print('dev server still reachable')
+''')
+        port = self.free_port('127.0.0.2')
+        command = shlex.join([str(self.root / 'dev'), str(port), str(marker)])
+        proc = subprocess.Popen(['ssh', '-F', str(self.config), 'fixture', command], env=self.env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 4
+            while not marker.exists() and time.monotonic() < deadline: time.sleep(.02)
+            self.assertTrue(marker.exists(), 'dev browser request was not refused')
+            self.assertFalse((self.local / 'browser-result').exists())
+            with socket.socket() as local: local.bind(('127.0.0.1', port))
+            with socket.create_connection(('127.0.0.2', port), timeout=1): pass
+            output, _ = proc.communicate(timeout=3)
+            self.assertEqual(proc.returncode, 0)
+            self.assertEqual(output.strip(), 'dev server still reachable')
+        finally:
+            if proc.poll() is None: proc.terminate(); proc.communicate(timeout=3)
+
     def test_detached_opener_retains_cli_ownership(self):
         """A new POSIX session in an opener must not hide its original CLI ancestor."""
         port = self.free_port('127.0.0.2')
@@ -244,7 +276,7 @@ from urllib.parse import quote
 with socket.socket() as listener:
     listener.bind(('127.0.0.2', int(sys.argv[1])))
     listener.listen()
-    url = 'https://provider.invalid/authorize?redirect_uri=' + quote('http://localhost:'+sys.argv[1]+'/callback', safe='')
+    url = 'https://provider.invalid/authorize?response_type=code&client_id=fixture&redirect_uri=' + quote('http://localhost:'+sys.argv[1]+'/callback', safe='')
     subprocess.run([os.environ['BROWSER'], url], check=True)
     with listener.accept()[0]:
         Path(sys.argv[2]).write_text(str(os.getpid()))
@@ -296,7 +328,7 @@ with socket.socket() as listener:
             unrelated.listen()
             unrelated.settimeout(.2)
             port = unrelated.getsockname()[1]
-            url = f'https://provider.invalid/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A{port}%2Fcallback'
+            url = f'https://provider.invalid/authorize?response_type=code&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A{port}%2Fcallback'
             self.ssh('"$BROWSER" ' + shlex.quote(url))
             result = self.local / 'browser-result'
             deadline = time.monotonic() + 5

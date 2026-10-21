@@ -37,8 +37,9 @@ Reuse authenticated connections where possible; do not promise silent new
 connections for authentication methods that need user interaction. Add services
 or configuration only when an observed requirement justifies them.
 Do not select a different authentication flow or rewrite OAuth state, PKCE,
-redirect URIs or credential storage. Catch browser requests rather than matching
-command names. Callback forwarding must bind loopback only and expire promptly.
+redirect URIs or credential storage. Catch browser requests rather than wrapping
+commands. Forward login callbacks only; leave dev-server opens outside forwarding.
+Require explicit OAuth authorization-code evidence or verified direct-flow support. Callback forwarding must bind loopback only and expire promptly.
 Never log authorization URLs, callback query strings, codes or tokens. Explicitly
 handle port conflicts, ambiguous sessions and unobservable browser launches;
 do not report success when compatibility has not been demonstrated.

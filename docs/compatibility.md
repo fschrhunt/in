@@ -13,7 +13,7 @@ addresses, never authorization URLs, state values, codes or tokens.
 | --- | --- | --- | --- |
 | Wrangler | 4.151.2 | HTTPS authorization URL with redirect_uri to localhost:8976 | Actual BROWSER invocation; fixed endpoint parsed |
 | Claude Code | 2.1.305 | HTTPS authorization URL with redirect_uri to a dynamically selected localhost port | Actual BROWSER invocation; dynamic endpoint parsed |
-| rclone | 1.75.2 | Direct HTTP loopback URL on 127.0.0.1:53682 | Actual BROWSER invocation; direct endpoint parsed |
+| rclone | 1.75.2 | Direct HTTP loopback URL on 127.0.0.1:53682 | Actual BROWSER invocation; verified rclone process and direct entry point required |
 
 Run `./x compatibility` to repeat against installed versions. It starts login
 commands in isolated app configuration and terminates them after observing the
@@ -44,7 +44,7 @@ macOS/Linux testing on separate machines.
 
 The suite covers late listener startup, unchanged POST callback/response bytes,
 Mosh handoff, a single attached tmux session, two laptops connecting to one
-account, browser preconnects, detached openers, occupied laptop ports, missing remote helpers,
+account, browser preconnects, detached openers, refusal of dev-server opens, occupied laptop ports, missing remote helpers,
 existing SSH masters, rejection of unrelated same-account listeners, cleanup and
 unaffected file transfer. Cancellation is also checked with an active silent
 callback, including remote helper cleanup while the SSH master survives. Focused Go tests
@@ -73,8 +73,9 @@ prove completed provider login. Temporary installations were stopped and removed
 ## Remaining validation and explicit limits
 
 - Completed remote Wrangler/Claude/rclone login after provider consent.
-- Direct localhost browser requests can also be dev-tool opens. A login-only
-  classification policy is not implemented; starting a server alone does nothing.
+- Only explicit OAuth authorization-code callbacks and the verified rclone direct
+  entry point are forwarded. Unknown direct localhost opens are refused; dev
+  servers retain their normal forwarding workflow.
 - Intel macOS runtime and older macOS system-SSH compatibility; no minimum
   OpenSSH version is claimed yet.
 - Mosh transport recovery after network loss. The terminal can survive while the

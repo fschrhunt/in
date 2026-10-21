@@ -119,3 +119,34 @@ func listenerOwned(inode, owners string) bool {
 	}
 	return false
 }
+
+// rcloneOwner pins the verified direct login flow to the rclone process holding its listener.
+// This is a single observed exception, not a registry of arbitrary command adapters.
+func rcloneOwner(raw string, ep endpoint, owners string) (string, error) {
+	if !rcloneAuthURL(raw) {
+		return "", unrecognizedLogin()
+	}
+	listener, err := callbackListener(ep.Host, ep.Port)
+	if err != nil || listener == nil {
+		return "", unrecognizedLogin()
+	}
+	refs, err := parseOwners(owners)
+	if err != nil {
+		return "", err
+	}
+	for _, ref := range refs {
+		current, _, _, err := processIdentity(ref.pid)
+		if err != nil || current != ref {
+			continue
+		}
+		exe, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(ref.pid), "exe"))
+		if err != nil || filepath.Base(exe) != "rclone" {
+			continue
+		}
+		owner := strconv.Itoa(ref.pid) + ":" + ref.start
+		if listenerOwned(listener.inode, owner) {
+			return owner, nil
+		}
+	}
+	return "", unrecognizedLogin()
+}

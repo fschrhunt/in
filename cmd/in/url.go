@@ -10,11 +10,12 @@ import (
 
 // endpoint is a validated loopback destination; hosts are numeric except localhost.
 type endpoint struct {
-	Host string
-	Port string
+	Host   string
+	Port   string
+	Direct bool // A loopback entry page requires separate tool verification.
 }
 
-// callback extracts explicit loopback routing while keeping the original authorization URL intact.
+// callback finds loopback route candidates without changing the URL; direct candidates need verification.
 func callback(raw string) (*endpoint, error) {
 	if len(raw) == 0 || len(raw) > 64*1024 || strings.ContainsAny(raw, "\x00\r\n") {
 		return nil, fmt.Errorf("invalid browser URL")
@@ -28,7 +29,10 @@ func callback(raw string) (*endpoint, error) {
 		return nil, fmt.Errorf("invalid URL parameters")
 	}
 	redirect := u
-	if values, ok := q["redirect_uri"]; ok {
+	originalHost := strings.ToLower(u.Hostname())
+	originalLoopback := originalHost == "localhost" || net.ParseIP(originalHost).IsLoopback()
+	// Local entry pages remain direct requests even if they contain redirect-looking parameters.
+	if values, ok := q["redirect_uri"]; ok && !originalLoopback {
 		if len(values) != 1 {
 			return nil, fmt.Errorf("ambiguous callback URL")
 		}
@@ -49,7 +53,11 @@ func callback(raw string) (*endpoint, error) {
 	if err := validEndpoint(host, port); err != nil {
 		return nil, err
 	}
-	return &endpoint{Host: host, Port: port}, nil
+	direct := redirect == u
+	if !direct && (len(q["response_type"]) != 1 || q.Get("response_type") != "code" || len(q["client_id"]) != 1 || q.Get("client_id") == "") {
+		return nil, fmt.Errorf("loopback redirect is not an OAuth authorization-code request")
+	}
+	return &endpoint{Host: host, Port: port, Direct: direct}, nil
 }
 
 // validEndpoint restricts callback channels to unprivileged numeric loopback endpoints.
@@ -66,4 +74,22 @@ func validEndpoint(host, port string) error {
 		return fmt.Errorf("callback destination must be loopback")
 	}
 	return nil
+}
+
+// rcloneAuthURL recognizes only the direct authorization entry point verified with rclone.
+// The URL alone never authorizes forwarding; the remote process and listener must also match.
+func rcloneAuthURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	return err == nil && u.Scheme == "http" && u.Hostname() == "127.0.0.1" &&
+		u.Port() == "53682" && u.EscapedPath() == "/auth" && u.Fragment == "" &&
+		len(q) == 1 && len(q["state"]) == 1 && q.Get("state") != ""
+}
+
+// unrecognizedLogin explains a refused loopback request without logging its URL.
+func unrecognizedLogin() error {
+	return fmt.Errorf("localhost URL is not a recognized login; no forwarding started")
 }

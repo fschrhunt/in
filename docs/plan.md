@@ -15,6 +15,9 @@ Mosh and the CLI's normal commands. When a remote CLI requests a browser, in
 opens the laptop browser and routes an observable loopback callback to the
 original remote listener. The CLI owns OAuth, user consent and credential storage.
 No daily wrapper, manual tunnel, new SSH identity or device-flow flag.
+Forwarding is login-only. Starting a dev server or opening its localhost page
+must not create a callback route. Direct localhost login pages require verified
+tool support; the current narrow exception is rclone.
 
 Broad CLI compatibility is the objective. Browser launch interception and
 callback discovery are separate capabilities; neither implies universal support.
@@ -180,9 +183,10 @@ steps, not URLs or callback contents. No idle success messages or telemetry.
 
 | Case | Initial policy and required evidence |
 | --- | --- |
-| Observable launcher and explicit loopback redirect | Core path; fixed/random ports, both listener startup orders and address families |
+| Observable launcher and explicit OAuth authorization-code loopback redirect | Core path; fixed/random ports, both listener startup orders and address families |
 | Remote listener differs from advertised callback | Requires proven endpoint discovery; do not assume port equality |
-| URL with no observable callback | Can open as a normal URL; callback support remains unknown |
+| Non-loopback URL with no observable callback | Can open as a normal URL; callback support remains unknown |
+| Direct localhost browser page | Refuse unless a verified login exception establishes tool and listener ownership; dev-server opens stay separate |
 | Printed-only URL or bypassed launcher | Unsupported automatic interception until a specific mechanism is proven |
 | Native device flow | Open its ordinary browser request unchanged; do not switch authentication modes |
 | Two logins needing the same local endpoint | Refuse the second without disturbing the first |
