@@ -15,6 +15,8 @@ in makes remote CLI browser login work with a local browser. Keep it small.
 
 `cmd/in/main.go` currently exposes help and version metadata only.
 `docs/plan.md` defines the proposed product and build gates, not shipped behavior.
+`docs/architecture-audit.md` records evidence, corrected assumptions and remaining
+feasibility questions. Prove automatic session bootstrap before runtime expansion.
 `x` is the shared local/CI entry point. `scripts/` checks documentation and builds
 release archives using the Python standard library. `.github/workflows/` runs
 those same commands. Run `./x check`; use `./x release-check` for distribution.
@@ -33,3 +35,9 @@ command names. Callback forwarding must bind loopback only and expire promptly.
 Never log authorization URLs, callback query strings, codes or tokens. Explicitly
 handle port conflicts, ambiguous sessions and unobservable browser launches;
 do not report success when compatibility has not been demonstrated.
+Keep terminal startup and unrelated SSH commands usable when in is unavailable.
+Separate request acknowledgement, listener readiness and CLI authentication.
+Do not block a browser hook waiting for a listener that depends on hook exit.
+Use current session ownership; refuse ambiguous tmux/multi-laptop routing.
+Keep callback routes bounded, support multiple connections, and never replay
+callback bytes after uncertain delivery. Never forward the SSH master socket.

@@ -2,6 +2,8 @@
 
 - [Implementation plan](plan.md): proposed architecture, research, build stages
   and acceptance criteria.
+- [Architecture audit](architecture-audit.md): findings, source evidence and
+  remaining feasibility questions.
 - [Release setup](contributing/releases.md): local packaging and future GitHub setup.
 - [Contributing](../CONTRIBUTING.md): development commands and review expectations.
 

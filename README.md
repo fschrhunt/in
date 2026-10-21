@@ -4,6 +4,8 @@ Remote CLI login, in your local browser.
 
 **In development.** This repository currently contains the build infrastructure
 and [implementation plan](docs/plan.md). The login bridge is not implemented.
+The [architecture audit](docs/architecture-audit.md) records the main risks and
+the experiments required before committing to the runtime design.
 
 The intended experience: install once on your laptop and server, connect using
 ordinary SSH or Mosh, and run your usual CLI commands. When a CLI opens a login

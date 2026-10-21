@@ -91,7 +91,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  drin:
+  draft:
     needs: [resolve, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -104,7 +104,7 @@ jobs:
         with:
           name: release-assets
           path: assets
-      - name: Verify selected source and create a drin
+      - name: Verify selected source and create a draft
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -117,5 +117,5 @@ jobs:
           cd assets
           sha256sum --check checksums.txt
           printf '\nSource commit: %s\n' "$SOURCE_SHA" >> release-notes.md
-          gh release create "$TAG" --verify-tag --drin --title "$TAG" \
+          gh release create "$TAG" --verify-tag --draft --title "$TAG" \
             --notes-file release-notes.md ./*.tar.gz checksums.txt

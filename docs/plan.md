@@ -1,208 +1,256 @@
 # Implementation plan
 
-Status: proposed; infrastructure is implemented, runtime work has not begun.
+Status: audited proposal. Build infrastructure exists; the login bridge does not.
+See the [architecture audit](architecture-audit.md) for evidence and corrections.
 
 ## Product contract
 
-Install in once on the laptop and remote server. Continue using ordinary `ssh`
-or `mosh` and unmodified CLI commands. When a remote program requests browser
-authentication, the laptop browser opens and any loopback callback reaches the
-original remote listener. The CLI completes its normal login and stores its own
-credentials remotely. No per-login wrapper, manual tunnel, or device flag.
+Install once on a macOS laptop and Linux server. Continue using ordinary SSH or
+Mosh and the CLI's normal commands. When a remote CLI requests a browser, in
+opens the laptop browser and routes an observable loopback callback to the
+original remote listener. The CLI owns OAuth, user consent and credential storage.
+No daily wrapper, manual tunnel, new SSH identity or device-flow flag.
 
-macOS laptop and Linux server come first. Wrangler, Claude Code and another
-unrelated loopback CLI are compatibility probes, not separate products. Do not
-assume their current implementations or commands before inspecting them.
-Native device flows may pass through naturally; in does not select them.
+Broad CLI compatibility is the objective. Browser launch interception and
+callback discovery are separate capabilities; neither implies universal support.
+Wrangler, Claude Code and a third unrelated loopback CLI are validation targets.
+Pin their versions and inspect their actual behavior before claiming support.
 
-## Reuse the user's SSH setup
+A broken or absent in must not prevent SSH/Mosh from connecting, alter remote
+command output, or break file transfer. Report a failed login bridge without
+silently redirecting the request elsewhere. Ordinary browser opens should still
+work; an unknown URL must not be misreported as a supported login.
 
-Users must not create keys, register a new identity, or maintain a second host
-configuration for in. Invoke system OpenSSH with the existing host alias and
-connection context, allowing it to resolve SSH config, jump hosts, identity
-agents, keys, certificates and host verification. in never opens private key
-files, copies credentials, stores passwords, or implements SSH authentication.
-It does not require agent forwarding to the remote machine.
+## Small architecture and existing authentication
 
-Prefer an already authenticated multiplexed connection when available. A new
-SSH connection uses the user's normal authentication, which may require a
-password, MFA or hardware-key approval. Existing SSH access does not guarantee
-that another connection can authenticate silently. Automatic operation must be
-proved with interactive authentication as well as agent-backed keys, especially
-when Mosh needs a separate transport or a connection must be restored.
+Use one Go binary with a remote browser-helper role and a laptop coordinator
+role. Start with the standard library and system OpenSSH. Prefer existing SSH
+forwarding to implementing a general stream multiplexer. Choose a resident
+service only after proving that automatic startup or request lifetime needs it.
+No root daemon, hosted relay, account system, credential store or plugin framework.
 
-Do not collect authentication prompts in a background daemon, weaken host
-verification, or ask users to switch authentication methods to hide this gap.
-Choose a bootstrap design that retains the authenticated transport where
-possible and reports clearly when normal SSH reauthentication is required.
+System SSH resolves the existing host alias, config, agent, keys, certificates,
+jump hosts and host verification. in never reads private keys, copies credentials,
+collects passwords, requires new keys, or enables agent forwarding. Preserve
+connection-specific options: reconnecting with a host alias alone may lose
+options supplied to the original SSH command.
 
-Keep configuration proportional to the task: existing SSH host configuration,
-minimal owned browser/session setup, and transient request state. Avoid a new
-host inventory, credential store, SSH config parser or connection framework.
+Reuse an authenticated multiplexed connection when available. A new connection
+may need normal password, MFA or hardware-key approval. Mosh's terminal transport
+cannot carry the bridge's SSH forwarding; retain or establish an SSH transport
+separately. Prove that bootstrap works without an extra routine authentication
+prompt, and expose required reauthentication honestly after a disconnect.
+Do not weaken host verification or keep retrying interactive authentication in
+an unattended process. Never terminate a user-owned SSH master during cleanup.
 
-## Command name constraint
+Configuration consists of existing SSH host configuration, minimal owned setup
+and transient requests. No second host inventory or custom SSH config parser.
+Installing integration on a host authorizes browser requests from that remote
+account; the setup should explain this once, without per-login approval prompts.
 
-`in` is a reserved word in common POSIX-family shells, including bash and zsh.
-The product and binary can retain the name, and `./bin/in` or an absolute
-executable path works. A bare `in setup` command is not portable shell syntax.
-Design one-time setup around an installer or explicit executable path; service
-managers and browser hooks invoke the executable directly. Do not introduce a
-daily alias or wrapper to work around the name. Decide the documented management
-interface before shipping installation.
+## Decide automatic bootstrap first
 
-## Smallest proposed architecture
+The first implementation experiment is an ordinary SSH/Mosh session with a
+working browser request route. A manually launched tunnel proves forwarding,
+but cannot qualify the proposed product architecture.
 
-Use one Go binary with laptop and remote roles, system OpenSSH as the encrypted
-transport, and a remote browser helper. Begin with the standard library and add
-dependencies only for demonstrated needs. No hosted relay, token broker, general
-plugin framework, root daemon, browser extension or CLI-specific login wrapper
-in the initial design. Revisit those exclusions only when research demonstrates
-that an essential requirement cannot be met otherwise.
+Start by testing an opt-in SSH configuration fragment, a small local connection
+hook, a private forwarded control socket, and remote shell initialization. This
+is a candidate, not a selected design. Compare alternatives only when this fails.
+Produce the exact configuration and process-lifetime diagram before building the
+rest of the runtime. Resolve these constraints:
 
-A laptop helper accepts authenticated requests over a private control
-channel. Establish its lifetime through the bootstrap experiment; use a resident
-user service only if it is needed for automatic operation. A remote browser
-helper uses browser environment hooks and common URL
-launchers in opted-in sessions. It forwards the original authorization URL
-without changing OAuth parameters. If a loopback redirect is discoverable, bind
-the matching laptop loopback endpoint before opening the browser and carry raw
-callback traffic to the original remote endpoint. Prefer byte forwarding over
-an HTTP callback server that reconstructs requests.
+- LocalCommand runs synchronously and cannot access the originating SSH session.
+  A hook must return promptly, avoid recursive invocation, and coexist with an
+  existing hook. Do not use Match exec for persistent side effects.
+- SendEnv/SetEnv need server acceptance; do not require administrator changes to
+  sshd or smuggle identity through TERM. User-level installation must suffice.
+- Prove how each remote shell finds its matching laptop through the authenticated
+  connection. A hostname, source IP, newest socket or sole currently reachable
+  endpoint is not sufficient evidence of session ownership.
+- Existing multiplexing, absent multiplexing, custom config paths and jump hosts
+  must be accounted for. Do not replace existing LocalCommand, RemoteCommand,
+  ProxyCommand or ControlPath settings to make the demo work.
+- Remote control sockets belong in a private directory, with collision-safe
+  ownership and stale-socket handling. Never unlink another live session's socket.
+  Keep the SSH master control socket on the laptop; exposing it remotely would
+  grant substantially more capability than opening a browser.
+- Missing helpers, prohibited forwarding and a stopped laptop coordinator must
+  leave terminal startup usable and stdout untouched. Do not enable global
+  ExitOnForwardFailure or other options that turn bridge failure into SSH failure.
 
-A browser hook does not require a resident remote daemon. Start with an on-demand
-helper; introduce a remote supervisor only if session lifetime or listener
-discovery requires one. Session routing and transport bootstrap remain research
-gates, not solved implementation details.
+Measure startup delay, idle processes/connections and work per request. Use
+bounded startup waits and event-driven operation. Select concrete deadline and
+resource limits from the experiment before advancing; no continuous scanning of
+processes, ports or terminal output.
 
-## Stage 1: establish coverage and automatic bootstrap
+## Request lifecycle
 
-Inspect workspace tooling, especially aft's system-SSH invocation and tunnel
-ownership practices. Reuse small proven pieces only if they fit; do not depend
-on aft or import its workspace/tmux features. Compare existing browser relays,
-SSH forwarding helpers and remote-development tools before adding new machinery.
+Keep browser launch, callback transport and authentication success distinct.
 
-For Wrangler, Claude Code and a third unrelated CLI, record pinned versions,
-source references and observed behavior:
+1. The remote hook submits the original URL over the authenticated private route.
+   Validate bounded input, protocol version and request identity. Parse only to
+   discover supported routing; pass the original URL unchanged to the browser.
+2. Determine the advertised browser callback endpoint and the actual remote
+   listener endpoint separately. Equal ports are a common case, not a universal
+   fact. A URL with hidden redirect details is not evidence of no callback.
+3. Reserve the required laptop loopback endpoint atomically before opening the
+   browser. Do not probe then close a port before binding it. Keep one active
+   owner per overlapping local endpoint; report conflicts without changing ports,
+   displacing other software, or guessing from callback OAuth state.
+4. Acknowledge that the coordinator owns the request and let the hook return.
+   A CLI may wait for the launcher to exit before starting its listener. Neither
+   hook acknowledgement nor browser launch means login succeeded.
+5. Open the browser once local forwarding is ready. Handle a late remote listener
+   with a bounded connection-establishment policy. SSH forward creation alone
+   does not prove destination readiness. Do not send synthetic HTTP probes or
+   consume a one-shot accept as a readiness check. Test a fixture whose listener
+   starts only after its browser hook returns.
+6. Forward callback bytes unchanged, including responses and TCP half-closes.
+   Preserve Host, path, query, POST bodies and TLS bytes. Retry only connection
+   establishment before delivery; never replay callback data after uncertain
+   delivery. Bound waiting connections and memory while a listener is unavailable.
+7. Release owned resources after an observable end, cancellation or deadline.
+   An opaque byte relay cannot generally identify OAuth success, and the first
+   connection can be a browser preconnect. Do not close the route after the first
+   accept or first EOF. Use a finite lease when CLI completion is unobservable;
+   measure its duration against real flows and allow active responses to drain
+   within a bounded limit.
 
-- How browser launch occurs: BROWSER, another environment variable, xdg-open,
-  a direct executable, or a URL printed without a launch request.
-- Whether the authorization URL exposes the full redirect URI, or an intermediate
-  service conceals it. Whether the listener exists before the browser hook runs.
-- Fixed versus dynamically selected ports, IPv4/IPv6 binding, callback paths,
-  listener lifetime, subprocess behavior and success/exit semantics.
-- Whether callback completion requires custom schemes, local HTTPS, multiple
-  connections or additional browser-to-loopback requests.
+The coordinator owns the route after acknowledging a request; hook exit does
+not cancel it. Bound control messages, concurrent requests, connections and
+leases. Duplicate request IDs must not reopen the browser. A lost acknowledgement
+must not trigger blind resubmission. Process restart or transport loss invalidates
+pending requests; never persist or automatically reopen authorization URLs.
+Report interrupted requests and let the CLI/user initiate a fresh attempt.
+Recover the transport for future requests where existing authentication permits.
 
-Prototype ordinary ssh/mosh startup integration without replacing their command
-names. Assess SSH configuration hooks, multiplexing, session-scoped private
-sockets, and independent transport startup. Mosh bootstraps through SSH but does
-not carry SSH forwards in its UDP terminal connection; its bridge needs a
-separately maintained connection. Verify behavior across disconnects and roaming.
-Do not assume that an arbitrary existing SSH connection exposes a usable master.
-Exercise existing host aliases and jump hosts, agent-backed authentication,
-interactive authentication, and reconnects without accessing key material.
+## Routing, trust and failure boundaries
 
-Deliverable: an evidence-backed compatibility matrix and selected bootstrap
-mechanism. Gate: demonstrate how a normal remote shell gets the browser helper
-and a route to the correct laptop with no per-login or per-connection command.
-If this is not achievable for a session type, document the boundary before building.
+Use explicit loopback binds for 127.0.0.1, ::1 and the required localhost family
+coverage. Pin remote callback destinations to verified loopback addresses;
+never resolve an arbitrary hostname into permission to reach remote services.
+A container's loopback may be different from the SSH server's: do not claim
+container or nested-SSH support without reaching the correct network namespace.
+Keep the redirect URI intact even when the two machines resolve localhost
+differently. Initial support targets unprivileged HTTP loopback callbacks;
+local HTTPS and custom schemes require separate evidence, not certificate hacks.
 
-## Stage 2: prove the bridge with a controlled fixture
+Session routing must be explicit and current. For tmux, updating its session
+environment does not update already-running shells. Test discovery at request
+time, not only shell startup. If several laptops are attached to the same pane,
+the initiating laptop may be unknowable: refuse ambiguous routing. Do not use
+last-active-client guesses. Nested SSH and account switching must not silently
+inherit a usable route to the wrong owner.
 
-Build a local-only fake CLI and authorization service that exercise fixed and
-random loopback ports and record completion without real credentials. Prove
-browser request delivery, listener readiness, byte-preserving callback forwarding,
-and original CLI completion over an actual disposable SSH environment.
+Trust the opted-in remote account, local user and SSH host identity. Processes
+running as the same user, and root on either machine, are outside the isolation
+boundary. Private socket permissions prevent other users from issuing requests;
+request/session identifiers prevent accidental cross-routing, not a malicious
+same-account process. Expose only browser requests and their leased loopback
+routes, never arbitrary commands or general access to the laptop network.
 
-Define a small bounded control protocol with explicit request/session IDs,
-authenticated ownership, deadlines and supported destinations. Permit only
-expected web URL schemes and loopback callback targets; never execute URL text
-through a shell. Protect control sockets with owner-only permissions. Ensure a
-remote request cannot choose arbitrary local files, commands or network targets.
+Accept only intended web URL forms, never file/command/custom schemes by default.
+Invoke a fixed browser opener with argument boundaries; no shell evaluation of
+URLs. Browser navigation retains the normal browser trust boundary: in cannot
+promise to police every provider redirect or page. Keep authorization URLs and
+callback payloads out of in logs, persistent files and diagnostics. Use private
+IPC for transport, not shell arguments or environment dumps. CLI output, browser
+history and upstream opener argv are outside in's logging control; do not claim
+those are redacted. Forwarding necessarily carries the authorization code in
+memory; in does not interpret it or redeem it.
 
-The laptop binds only loopback and handles localhost/IPv4/IPv6 deliberately.
-Port ownership lasts through completion or expiry. Never silently change a
-callback port or redirect URI. Reject conflicting or ambiguous ownership.
-Clean up only owned resources on cancellation, timeout, disconnect and failure.
-Use a bounded lease when the original CLI's completion is not observable.
+During an in-owned request, a forwarding failure produces a concise error rather
+than silently opening the URL without its required route. Outside an active
+integration, preserve the prior browser launcher without recursion. Some launch
+libraries discard child stderr: prove an error reaches the user through a
+supported local or remote channel. Diagnostics report stages and corrective
+steps, not URLs or callback contents. No idle success messages or telemetry.
 
-Tests each protect one behavior: unchanged callback bytes, dynamic-port readiness,
-conflicting port refusal, invalid request rejection, session isolation, timeout
-and owned-resource cleanup. No live provider logins in CI and no credentials,
-authorization URLs or callback queries in diagnostics or snapshots.
+## Compatibility by capability
 
-## Stage 3: make normal sessions automatic
+| Case | Initial policy and required evidence |
+| --- | --- |
+| Observable launcher and explicit loopback redirect | Core path; fixed/random ports, both listener startup orders and address families |
+| Remote listener differs from advertised callback | Requires proven endpoint discovery; do not assume port equality |
+| URL with no observable callback | Can open as a normal URL; callback support remains unknown |
+| Printed-only URL or bypassed launcher | Unsupported automatic interception until a specific mechanism is proven |
+| Native device flow | Open its ordinary browser request unchanged; do not switch authentication modes |
+| Two logins needing the same local endpoint | Refuse the second without disturbing the first |
+| Existing ordinary tmux shell, one unambiguous laptop | Required request-time routing test before claiming tmux support |
+| Several laptops sharing a pane | Explicit ambiguity failure; no guessed routing |
+| Containers, nested SSH, sudo, custom schemes, local HTTPS | Track separately; no automatic expansion of the first release |
 
-Provide reversible one-time setup for the selected laptop helper, remote browser hooks,
-and SSH transport/bootstrap integration. Show concrete managed changes and keep
-unrelated shell/SSH configuration intact. Uninstall removes only owned changes.
-The installer must not require typing in before ssh, mosh or a login command.
+BROWSER and PATH shims are mechanisms to test, not universal contracts. Some
+libraries use bundled or absolute launcher paths, detach the child, or discard
+its output. Keep existing browser overrides and desktop openers working. A tiny
+compatibility shim may be justified by evidence; a general provider plugin
+framework is not. Never change the CLI's OAuth state, PKCE, redirect URI or stores.
 
-Scope browser-launch interception to participating remote sessions and preserve
-normal launcher behavior elsewhere. BROWSER support is not universal; validate
-common launcher shims and document bypasses. Avoid blanket process tracing or
-polling every listener as an unproven default.
+## Build sequence and acceptance gates
 
-Handle two laptops, multiple servers, multiple remote sessions, nested SSH and
-tmux reattachment. Never guess which laptop owns a browser request; stale session
-metadata must not route to an old connection. Define reconnect and suspended-laptop
-behavior. Keep quiet during normal operation and report actionable failures.
+### 1. Feasibility and minimal automatic installation
 
-Gate: ordinary ssh and mosh followed by a fixture login work without a wrapper,
-including cleanup and disconnect recovery. The bridge uses SSH credentials only
-through system SSH, never copies them, and respects host verification.
+Inspect existing tools before adding machinery: aft's SSH process ownership,
+system forwarding, editor browser/port forwarding, and dedicated browser relays.
+Record what each already solves and the remaining terminal-independent gap.
+For the initial CLIs, pin version/source and observe launcher, redirect discovery,
+listener timing, detach behavior and completion signals. Keep source inspection
+separate from executed authentication evidence.
 
-## Stage 4: validate real CLI coverage
+Build the smallest disposable bootstrap experiment and reversible installer
+fragment together. Exercise normal SSH and Mosh, existing authentication,
+forwarding denied, helper absent, and two laptops/sessions. Prove remote route
+identity without changing sshd, replacing SSH commands or requiring a new key.
+Installation is part of this feasibility gate, not a final packaging task.
+Record minimum macOS/system-SSH and Linux/shell versions that actually pass.
 
-Use the Stage 1 matrix to exercise current Wrangler, Claude Code, and a third
-unrelated loopback CLI on a real macOS/Linux pair. Record exact versions and
-whether each path was source-inspected, fixture-tested or actually authenticated.
-Provider approval remains an interactive human step; do not call cross-builds
-or fake logins evidence of live provider success.
+Gate: normal connection plus fixture browser request reaches the correct laptop,
+with no per-connection command, no unexpected auth prompt, and no effect on an
+ordinary remote command, scp/sftp or terminal startup when in is unavailable.
+If the candidate cannot do this, revise the architecture before continuing.
 
-Cover existing and multiplexed SSH, Mosh, fixed/random callback ports, IPv4/IPv6,
-port conflicts, concurrent login attempts, cancellation and expired requests.
-Validate opaque redirect handling before claiming it works. Printed-only URLs,
-custom URI schemes and CLIs bypassing launch hooks must have explicit support
-boundaries; a browser relay alone cannot guarantee every authentication flow.
+### 2. Complete one login through the same automatic path
 
-Gate: successful unwrapped login from the remote terminal through the laptop
-browser, leaving the remote CLI authenticated with no manually configured tunnel.
+Use a controlled fake CLI/provider and disposable actual SSH server to prove the
+request lifecycle. Add focused tests for late listener startup, exact callback
+bytes including POST, family mismatch, conflicting ownership, ambiguous session,
+resource bounds, interrupted delivery and cleanup. Test browser preconnect and
+multiple connections without treating either as login success. Use no live
+credentials or provider logins in CI.
 
-## Stage 5: ship the installation experience
+Gate: fixed and random port fixture logins complete through the installed normal
+session path; cancellation or expiry releases owned listeners; unrelated SSH
+connections and forwards survive. Include one real macOS browser run early.
 
-Add checksum-verified installation and upgrades using the four archive targets,
-macOS service lifecycle support, focused diagnostics, and complete setup,
-troubleshooting and uninstall documentation. Include Mosh transport reconnection
-and session-routing guidance based on validated behavior.
+### 3. Validate real tools and session behavior
 
-Make the first release only after the ordinary-command experience passes on a
-real laptop/server pair. Keep a visible compatibility matrix and distinguish
-unsupported cases from broken installation. Avoid promising universal coverage.
+Run Wrangler, Claude Code and a third unrelated loopback CLI on a real macOS/Linux
+pair. A human approves provider consent; verify the remote CLI's authenticated
+state using its normal behavior without reading credentials. Record exact CLI,
+OS, browser, SSH and Mosh versions. Validate ordinary tmux reattachment, Mosh
+roaming/reconnect, port conflicts and concurrent distinct-port requests.
 
-## Open design decisions
+Gate: each claimed supported path succeeds without wrappers or manual tunnels.
+Record limits explicitly. Cross-builds and fake logins are not provider evidence.
 
-1. Can SSH configuration bootstrap both ordinary SSH and Mosh without wrapping
-   either command and without a second interactive authentication prompt?
-2. How do persistent shells receive the correct current laptop identity without
-   inheriting a stale tmux environment?
-3. Is redirect-URI inspection sufficient across the initial CLIs? If not, can
-   process-scoped listener discovery solve the gap safely and without root?
-4. Can a single remote browser hook cover enough launch libraries, and what
-   happens when a CLI prints a URL or invokes an absolute browser executable?
-5. How will listener leases end when the browser helper is detached and cannot
-   observe completion of its originating CLI?
-6. What explicit behavior is acceptable when the required laptop callback port
-   is occupied? Arbitrary port substitution changes the provider's redirect.
+### 4. Ship a reversible installation
 
-Resolve these through small experiments before committing to background agents
-or broad interception mechanisms.
+Harden the installation proven in stage 1: idempotent setup, atomic owned changes,
+coexistence with user hooks, upgrade/version mismatch handling, rollback on partial
+failure, and uninstall that removes only owned files/blocks. Existing config
+changes made after installation must survive. Avoid broad shell PATH shadowing.
+Add checksum-verified distribution, setup/troubleshooting docs and a compatibility
+matrix. Manage a macOS service only if the proven architecture uses one.
 
-## Architecture review gate
+Gate: install, use, upgrade and uninstall work on the real target pair. Add a
+component only for an observed failure with clear ownership and cleanup. Avoid
+abstractions without multiple demonstrated uses. Keep the normal path invisible
+and failures understandable.
 
-Before adding a component, identify the observed failure it fixes and why an
-existing browser hook or OpenSSH facility cannot handle it. Prove the smallest
-end-to-end path first. A component needs a clear owner, lifetime and cleanup
-rule; abstractions need more than one demonstrated use. Measure success by
-normal login working with existing SSH access and minimal setup, not by the
-number of supported configuration options.
+## Command name
+
+Keep the product and binary named in. Bare `in setup` is invalid Bash syntax;
+use an installer or explicit executable path for one-time management. The current
+scaffold is `./bin/in`. Service managers and browser hooks execute it directly.
+This does not add a command to daily login use.
