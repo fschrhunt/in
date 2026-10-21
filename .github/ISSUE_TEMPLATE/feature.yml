@@ -1,0 +1,14 @@
+name: Feature request
+description: Explain a problem in could solve.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Explain why the addition belongs in in and how it could stay simple.

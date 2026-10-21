@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible problem in in.
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials or private hosts/paths. Follow SECURITY.md for vulnerabilities.
+  - type: input
+    id: source
+    attributes:
+      label: Source commit and environment
+      description: Commit, client OS/architecture, Go version, remote OS and relevant SSH/Mosh versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal sanitized example.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
