@@ -35,7 +35,7 @@ if [ -n "$archive" ] || [ -n "$checksums" ]; then
   cp "$archive" "$staging/$asset"
   cp "$checksums" "$staging/checksums.txt"
 else
-  base="https://github.com/arocomputer/in/releases/download/$version"
+  base="https://github.com/fschrhunt/in/releases/download/$version"
   curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$base/$asset" -o "$staging/$asset"
   curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$base/checksums.txt" -o "$staging/checksums.txt"
 fi

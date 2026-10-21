@@ -2,7 +2,7 @@
 
 in has no published release. `install.sh` verifies a selected release archive,
 checks its binary version and installs it atomically; it does not run setup.
-Source is hosted at [arocomputer/in](https://github.com/arocomputer/in).
+Source is hosted at [fschrhunt/in](https://github.com/fschrhunt/in).
 
 ## Local verification
 
