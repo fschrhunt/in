@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add a repeatable Mac/Linux OAuth proof with isolated profiles, state and PKCE
+  validation, fresh-process authentication checks and verified cleanup.
+
 - Capture PATH-resolved xdg-open requests as well as BROWSER, while preserving
   native file/dev opens, explicit browser overrides and local sessions.
 - Pin existing OAuth callback sockets by identity so background services work

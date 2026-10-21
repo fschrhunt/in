@@ -2,6 +2,7 @@
 
 - [Setup and usage](usage.md): install, use, stop, upgrade and uninstall.
 - [Architecture](architecture.md): current processes, ownership and callback lifetime.
+- [Testing](testing.md): repeatable native OAuth proof and release validation.
 - [Compatibility](compatibility.md): executed checks and explicit limits.
 - [Implementation plan](plan.md): proposed architecture, research, build stages
   and acceptance criteria.

@@ -57,6 +57,10 @@ It preserves existing browser overrides and refuses conflicting SSH login hooks.
 ./x release-check
 ```
 
+For a complete fixture login on a real Mac/Linux pair, run
+`./x prove --laptop YOUR_MAC --server THIS_SERVER`. See [testing](docs/testing.md)
+for prerequisites, the actual-browser option and what this proves.
+
 The integration suite uses disposable keys and a real SSH server, Mosh and tmux.
 Python 3.9+ and those executables are needed for integration; normal binaries
 have no Go or Python runtime dependency. Go source has no third-party modules.

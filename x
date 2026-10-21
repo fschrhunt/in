@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 # Reject unsupported task arguments instead of silently ignoring them.
 usage() {
-  echo 'usage: ./x [fmt [--check]|check|test|integration|compatibility|docs|build|release-check [vX.Y.Z]|dist vX.Y.Z]' >&2
+  echo 'usage: ./x [fmt [--check]|check|test|integration|prove --laptop HOST --server HOST [--browser] [--report PATH]|compatibility|docs|build|release-check [vX.Y.Z]|dist vX.Y.Z]' >&2
   exit 2
 }
 
@@ -38,6 +38,9 @@ case "$task" in
     [ "$#" -eq 0 ] || usage
     ./x build
     exec python3 scripts/integration.py
+    ;;
+  prove)
+    exec python3 scripts/prove.py "$@"
     ;;
   compatibility)
     [ "$#" -eq 0 ] || usage

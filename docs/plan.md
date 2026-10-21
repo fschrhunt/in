@@ -1,7 +1,9 @@
 # Implementation plan
 
 Status: first implementation exists. Linux SSH/Mosh fixtures, native checks on
-two Apple Silicon Macs and a real macOS browser callback pass. Five installed
+two Apple Silicon Macs and a real macOS browser callback pass. The repeatable
+[OAuth proof](testing.md) also passes on a Mac/Linux pair, including credential
+persistence and fresh-process authentication against a controlled provider. Five installed
 CLI launch paths were observed; completed provider logins and automatic transport
 recovery remain unverified or unimplemented.
 Current behavior is documented in [architecture](architecture.md),

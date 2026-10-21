@@ -117,3 +117,17 @@ This is a synthetic OAuth request, not an OpenCode authentication claim.
 
 The working default path is broader than a Wrangler-specific integration, but
 these limits prevent describing it as universal remote authentication support.
+
+## Repeatable native OAuth proof
+
+`./x prove --laptop mini --server server --browser` passed on an Apple Silicon
+Mac and this Linux server. It completed isolated fixture OAuth exchanges for
+dynamic ports, a late listener, cancellation and same-port retry, a separate
+service listener through xdg-open, and an actual system-browser callback. Each
+completed login rejected incorrect state, exchanged a PKCE-bound code, persisted
+private credentials and authenticated from a fresh remote process. Stop released
+callback ports while preserving SSH; temporary installations were removed.
+
+See [testing](testing.md) to repeat the proof. This validates the shared login
+transport and a controlled OAuth lifecycle; it does not replace real-provider
+consent checks or prove that every CLI exposes a supported browser-launch hook.

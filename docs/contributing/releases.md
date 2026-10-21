@@ -1,9 +1,8 @@
 # Release setup
 
 in has no published release. `install.sh` verifies a selected release archive,
-checks its binary version and installs it atomically; it does not run setup. The module path reserves
-`github.com/arocomputer/in` as the intended location; this setup does not create
-that GitHub repository or configure a remote.
+checks its binary version and installs it atomically; it does not run setup.
+Source is hosted at [arocomputer/in](https://github.com/arocomputer/in).
 
 ## Local verification
 
@@ -18,12 +17,16 @@ For local versioned packaging, add a nonempty `## X.Y.Z` section to
 overwrite `dist/vX.Y.Z` and never creates a tag or publishes anything.
 Checksums detect corruption; binaries are unsigned and not notarized.
 
-## GitHub setup when the repository exists
+## GitHub policy
 
 Use `main` as the default branch. Enable Actions and private vulnerability
 reporting. Configure required checks `check (ubuntu-latest)`,
-`check (macos-latest)`, `integration`, and `release-check`, and maintainer review.
-CODEOWNERS routes review requests; it does not enforce approval.
+`check (macos-latest)`, `integration`, and `release-check`. The default branch
+requires pull requests, up-to-date checks, resolved review threads and linear
+history; deletion and force pushes are blocked. Match aft with squash-only merges
+and administrator bypass restricted to pull requests. No approval count is
+required, matching the other repositories. CODEOWNERS routes review requests;
+it does not enforce approval.
 Action versions follow the pinned revisions in aft; monthly Dependabot proposals
 keep them reviewable. There are no external Go dependencies to update yet.
 
