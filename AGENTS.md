@@ -22,6 +22,11 @@ those same commands. Run `./x check`; use `./x release-check` for distribution.
 ## Design contracts
 
 Normal SSH/Mosh and CLI commands must remain the everyday interface after setup.
+Delegate SSH authentication and host configuration to system OpenSSH. Never read
+private keys, copy credentials, require new keys or enable agent forwarding.
+Reuse authenticated connections where possible; do not promise silent new
+connections for authentication methods that need user interaction. Add services
+or configuration only when an observed requirement justifies them.
 Do not select a different authentication flow or rewrite OAuth state, PKCE,
 redirect URIs or credential storage. Catch browser requests rather than matching
 command names. Callback forwarding must bind loopback only and expire promptly.

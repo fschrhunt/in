@@ -10,6 +10,9 @@ ordinary SSH or Mosh, and run your usual CLI commands. When a CLI opens a login
 page, in opens your laptop browser and routes any localhost callback back to the
 remote CLI. No login wrapper, manual tunnel, or device-flow flag to remember.
 The CLI retains its authentication protocol and credential storage.
+in will reuse your existing SSH setup through system OpenSSH; it will not require
+new keys or read your private keys. Reconnection may still require your normal
+SSH authentication.
 
 macOS locally and Linux remotely are the first runtime targets. Support across
 CLIs will be measured; universal compatibility is not yet established.

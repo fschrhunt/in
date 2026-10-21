@@ -15,6 +15,31 @@ unrelated loopback CLI are compatibility probes, not separate products. Do not
 assume their current implementations or commands before inspecting them.
 Native device flows may pass through naturally; in does not select them.
 
+## Reuse the user's SSH setup
+
+Users must not create keys, register a new identity, or maintain a second host
+configuration for in. Invoke system OpenSSH with the existing host alias and
+connection context, allowing it to resolve SSH config, jump hosts, identity
+agents, keys, certificates and host verification. in never opens private key
+files, copies credentials, stores passwords, or implements SSH authentication.
+It does not require agent forwarding to the remote machine.
+
+Prefer an already authenticated multiplexed connection when available. A new
+SSH connection uses the user's normal authentication, which may require a
+password, MFA or hardware-key approval. Existing SSH access does not guarantee
+that another connection can authenticate silently. Automatic operation must be
+proved with interactive authentication as well as agent-backed keys, especially
+when Mosh needs a separate transport or a connection must be restored.
+
+Do not collect authentication prompts in a background daemon, weaken host
+verification, or ask users to switch authentication methods to hide this gap.
+Choose a bootstrap design that retains the authenticated transport where
+possible and reports clearly when normal SSH reauthentication is required.
+
+Keep configuration proportional to the task: existing SSH host configuration,
+minimal owned browser/session setup, and transient request state. Avoid a new
+host inventory, credential store, SSH config parser or connection framework.
+
 ## Command name constraint
 
 `in` is a reserved word in common POSIX-family shells, including bash and zsh.
@@ -34,8 +59,10 @@ plugin framework, root daemon, browser extension or CLI-specific login wrapper
 in the initial design. Revisit those exclusions only when research demonstrates
 that an essential requirement cannot be met otherwise.
 
-A laptop user service accepts authenticated requests over a private control
-channel. A remote browser helper uses browser environment hooks and common URL
+A laptop helper accepts authenticated requests over a private control
+channel. Establish its lifetime through the bootstrap experiment; use a resident
+user service only if it is needed for automatic operation. A remote browser
+helper uses browser environment hooks and common URL
 launchers in opted-in sessions. It forwards the original authorization URL
 without changing OAuth parameters. If a loopback redirect is discoverable, bind
 the matching laptop loopback endpoint before opening the browser and carry raw
@@ -72,6 +99,8 @@ sockets, and independent transport startup. Mosh bootstraps through SSH but does
 not carry SSH forwards in its UDP terminal connection; its bridge needs a
 separately maintained connection. Verify behavior across disconnects and roaming.
 Do not assume that an arbitrary existing SSH connection exposes a usable master.
+Exercise existing host aliases and jump hosts, agent-backed authentication,
+interactive authentication, and reconnects without accessing key material.
 
 Deliverable: an evidence-backed compatibility matrix and selected bootstrap
 mechanism. Gate: demonstrate how a normal remote shell gets the browser helper
@@ -104,7 +133,7 @@ authorization URLs or callback queries in diagnostics or snapshots.
 
 ## Stage 3: make normal sessions automatic
 
-Provide reversible one-time setup for macOS user services, remote browser hooks,
+Provide reversible one-time setup for the selected laptop helper, remote browser hooks,
 and SSH transport/bootstrap integration. Show concrete managed changes and keep
 unrelated shell/SSH configuration intact. Uninstall removes only owned changes.
 The installer must not require typing in before ssh, mosh or a login command.
@@ -168,3 +197,12 @@ unsupported cases from broken installation. Avoid promising universal coverage.
 
 Resolve these through small experiments before committing to background agents
 or broad interception mechanisms.
+
+## Architecture review gate
+
+Before adding a component, identify the observed failure it fixes and why an
+existing browser hook or OpenSSH facility cannot handle it. Prove the smallest
+end-to-end path first. A component needs a clear owner, lifetime and cleanup
+rule; abstractions need more than one demonstrated use. Measure success by
+normal login working with existing SSH access and minimal setup, not by the
+number of supported configuration options.
