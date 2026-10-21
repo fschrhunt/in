@@ -38,10 +38,18 @@ Or use `mosh my-server`. The installed Mosh function adds
 connection sharing. Existing Mosh aliases/functions are left in place; if you
 already have one, it must select this mode for Mosh integration to work.
 
+With ET 7 or newer, use `et my-server` for a host opted in by laptop setup. The installed `et` function adds ET's
+native private reverse Unix socket. The remote browser agent starts only when a
+browser request arrives. An older ET client keeps its normal terminal behavior
+without browser forwarding. Connections to other ET hosts retain ordinary ET behavior without a bridge.
+Existing custom `et` aliases/functions are untouched;
+they need an encrypted forwarded private Unix socket, `IN_SESSION_SOCKET` and a
+local owner for that terminal session to enable this path.
+
 ## What setup changes
 
 The remote setup installs a small browser launcher and a shell fragment. In shells
-with SSH_CONNECTION it supplies BROWSER only when unset or already managed by in,
+with `SSH_CONNECTION` or `IN_SESSION_SOCKET` it supplies BROWSER only when unset or already managed by in,
 and adds a dedicated PATH directory containing only an xdg-open shim. Re-sourcing
 the fragment does not duplicate that entry. Files, options and direct dev URLs
 passed to xdg-open retain the native opener; no callback forwarding is started.
@@ -59,7 +67,9 @@ not replace RemoteCommand or ProxyCommand in your normal session.
 
 The fragments are sourced from `.zshrc`, or from `.bashrc` and `.bash_profile`.
 Each block has an exact ownership record. Update both machines together: wire
-version 2 rejects older peers explicitly. Installation can be repeated to update
+version 3 rejects older peers explicitly. When the installed binary changes, setup first asks that older binary to stop
+its own bridge protocol. SSH masters and ET terminals remain alive; reconnect ET
+to start its updated bridge. Installation can be repeated to update
 the owned binary and fragments; edited generated files or edited managed blocks
 cause a refusal. Unrelated configuration and later edits outside those blocks
 survive uninstall. Symlinked initialization/configuration files must be resolved
@@ -67,8 +77,9 @@ explicitly with the custom path options below.
 
 One coordinator and one small remote relay remain per connected SSH master until
 stopped or disconnected. They retain an authenticated SSH channel after a terminal
-exits so Mosh can continue to use it. There is no launchd/systemd service and no
-startup scan of all hosts. The bridge is idle between requests; callback listeners
+exits so Mosh can continue to use it. The local ET function owns its bridge for
+the terminal's lifetime and starts its remote agent on browser demand. There is no launchd/systemd service and no
+startup scan of all hosts. Between requests only small control keepalives run; callback listeners
 exist only for active requests. Opting a host in allows its remote account to
 request browser opens on this laptop.
 
@@ -82,7 +93,8 @@ request browser opens on this laptop.
 
 Status reports laptop coordinator processes and the last local diagnostic; it
 is not proof that a provider login succeeded. Stop ends in's relays/coordinators
-and their callback leases, waiting for owned processes to stop. It leaves your SSH master and unrelated sessions alone.
+and their callback leases, waiting for owned processes to stop. It leaves your
+SSH master and a running ET terminal alone.
 To re-enable a stopped bridge on an existing master, repeat laptop setup.
 Uninstall on both machines removes exact owned blocks and unchanged generated
 files. Open new shells afterward; an existing shell retains its old environment
@@ -93,7 +105,8 @@ the application directory; uninstall never recursively deletes that directory.
 
 There is no port scanner or command monitor. Starting a dev server does not cause
 an action. Laptop setup does not replace the local browser launcher, and remote
-setup does not enable its hook in a local shell without SSH_CONNECTION.
+setup does not enable its hook in a local shell without `SSH_CONNECTION` or
+`IN_SESSION_SOCKET`.
 
 Automatic forwarding is login-only. The generic path requires a non-loopback
 authorization URL with one `response_type=code`, a nonempty `client_id`, and an
@@ -117,8 +130,10 @@ exceptions require observed tool behavior and focused tests.
 - **Bridge unavailable:** check status on the laptop. Restarting laptop setup can
   attach to an existing authenticated master. A new master runs the hook normally.
   in does not initiate unattended replacement authentication when the transport
-  disconnects. A surviving Mosh session can outlive its SSH bridge; reconnecting
-  Mosh or reattaching tmux through a new connected terminal restores session routing.
+  disconnects. A surviving Mosh shell can use a replacement master after a fresh
+  authenticated SSH login on the same ControlPath. Until
+  then browser requests fail; old URLs are not replayed. ET needs its session
+  socket and local terminal bridge to remain available.
 - **Callback port occupied:** in refuses the request without opening the browser.
   It does not evict another process or change the CLI's redirect URI. A callback
   lease closes when listener shutdown is observed, otherwise after three minutes.
@@ -134,9 +149,8 @@ exceptions require observed tool behavior and focused tests.
   belong to a captured ancestor of the browser hook, identified by PID/start time.
   Services must start their callback listener before requesting the browser.
 - **tmux ambiguity:** exactly one client must be attached to the session. The hook
-  reads its current session SSH_CONNECTION at request time. Configure tmux's
-  update-environment to retain SSH_CONNECTION if you have overridden its defaults.
-  Two clients attached to one session are intentionally refused.
+  reads only `SSH_CONNECTION` and `IN_SESSION_SOCKET` from the owned client's
+  live process environment. A missing pane or two attached clients is refused.
 - **Hidden/bypassed callback:** in supports explicit OAuth authorization-code redirects and the
   verified rclone direct login entry point. It does not infer hidden endpoints, scrape terminal
   output, intercept absolute/bundled launchers, or change device flows. A remote callback address different from the
@@ -148,8 +162,11 @@ exceptions require observed tool behavior and focused tests.
 See [compatibility](compatibility.md) for observed CLI versions. Containers,
 nested SSH, account switching, local HTTPS, privileged callback ports and custom
 URI schemes have no verified automatic path. Connection-specific SSH overrides
-are supported by generated ControlPaths; with an existing resolved ControlPath,
-the hook only accepts the original setup connection identity.
+are supported by generated ControlPaths and literal parent SSH `-S` or
+`-o ControlPath` overrides, including Kitty's default sharing. Unsupported or
+ambiguous overrides fail closed. A native `tailscale ssh` wrapper can rewrite a
+destination to its canonical MagicDNS name with a trailing dot; opt in the
+actual SSH destination on the laptop, not merely another alias for the same host.
 
 ## Isolated and custom setup
 

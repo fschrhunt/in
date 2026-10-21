@@ -14,6 +14,7 @@ checks. Build alone needs Go and a shell.
 | `./x fmt --check` | Check formatting without changing files |
 | `./x test` | Run race-enabled Go tests and infrastructure tests |
 | `./x integration` | Exercise installed hooks over disposable SSH/Mosh/tmux on Linux |
+| `./x clients` | Exercise native ET/Kitty sessions in isolated Linux homes; requires ET, Kitty, Xvfb, bubblewrap and integration prerequisites |
 | `./x prove --laptop HOST --server HOST` | Prove complete fixture OAuth logins on a real Mac/Linux pair using existing SSH |
 | `./x compatibility` | Observe installed CLI launch shapes in isolated configuration; no provider consent |
 | `./x docs` | Check local documentation links and guide metadata when present |

@@ -11,11 +11,11 @@ import (
 	"strings"
 )
 
-// open captures browser URLs only in the guarded SSH environment and delegates other xdg-open calls unchanged.
+// open captures browser URLs only in the guarded remote session and delegates other xdg-open calls unchanged.
 func open(ctx context.Context, args []string) error {
 	root := os.Getenv("IN_HOME")
 	browser := os.Getenv("BROWSER")
-	guarded := os.Getenv("SSH_CONNECTION") != "" && (browser == "" || (root != "" && browser == filepath.Join(root, "bin", "browser")))
+	guarded := (os.Getenv("SSH_CONNECTION") != "" || os.Getenv("IN_SESSION_SOCKET") != "") && (browser == "" || (root != "" && browser == filepath.Join(root, "bin", "browser")))
 	if guarded && len(args) == 1 && capturedOpenURL(args[0]) {
 		return browse(ctx, args[0])
 	}

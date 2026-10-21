@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Share callback/privacy logic behind `callbackTransport.Open`. Bind SSH relays to
+  logical IDs stored per ControlPath; retain up to 128 exact remote
+  tuple aliases for surviving Mosh shells. Refresh only after an authenticated hook.
+- Discover literal parent SSH `-S` and `-o ControlPath` overrides, preserving Kitty's
+  default connection sharing and existing client configuration.
+- Add an installed ET 7+ function for opted-in hosts with a private reverse Unix session socket and
+  standard-library HTTP/2 callback streams. A remote agent starts on browser demand;
+  stopping in releases bridge resources while the ET terminal keeps running.
+- Route tmux from the sole attached client's owned process environment and enable
+  remote hooks for `SSH_CONNECTION` or `IN_SESSION_SOCKET`. Upgrade both ends for
+  wire version 3. Add isolated native client proof coverage.
+- Fence stop/start races and stop older wire protocols before an upgrade.
 - Add a repeatable Mac/Linux OAuth proof with isolated profiles, state and PKCE
   validation, fresh-process authentication checks and verified cleanup.
 
@@ -10,7 +22,7 @@
 - Pin existing OAuth callback sockets by identity so background services work
   without command-specific adapters. Reject socket replacement; retain ancestor
   checks for late listeners. A new socket can reclaim an idle cancelled login's
-  port immediately. Wire version 2 requires updating both machines.
+  port immediately.
 
 - Limit forwarding to explicit OAuth authorization-code requests and rclone's
   verified direct login entry point; refuse dev-server browser opens without

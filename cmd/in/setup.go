@@ -68,7 +68,11 @@ func setup(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("another setup is running")
 	}
-	defer owner.Close()
+	defer func() {
+		if owner != nil {
+			owner.Close()
+		}
+	}()
 	manifest, err := readInstallation(root)
 	if err != nil {
 		return err
@@ -151,7 +155,7 @@ func setup(ctx context.Context, args []string) error {
 		if err = addFile(filepath.Join(openers, "xdg-open"), []byte(opener), 0700); err != nil {
 			return err
 		}
-		snippet = "if [ -n \"${SSH_CONNECTION:-}\" ] && { [ -z \"${BROWSER:-}\" ] || [ \"$BROWSER\" = " + shellQuote(browser) + " ]; }; then\n  export IN_HOME=" + shellQuote(root) + "\n  export BROWSER=" + shellQuote(browser) + "\n  case :\"$PATH\": in\n    *:" + shellQuote(openers) + ":*) ;;\n    *) export PATH=" + shellQuote(openers) + ":\"$PATH\" ;;\n  esac\nfi"
+		snippet = "if { [ -n \"${SSH_CONNECTION:-}\" ] || [ -n \"${IN_SESSION_SOCKET:-}\" ]; } && { [ -z \"${BROWSER:-}\" ] || [ \"$BROWSER\" = " + shellQuote(browser) + " ]; }; then\n  export IN_HOME=" + shellQuote(root) + "\n  export BROWSER=" + shellQuote(browser) + "\n  case :\"$PATH\": in\n    *:" + shellQuote(openers) + ":*) ;;\n    *) export PATH=" + shellQuote(openers) + ":\"$PATH\" ;;\n  esac\nfi"
 	} else {
 		host := f.Arg(0)
 		if strings.ContainsAny(*remote+*sshConfig, "\r\n%") {
@@ -198,7 +202,7 @@ func setup(ctx context.Context, args []string) error {
 		if strings.ContainsAny(control, "\n\r'\" ") {
 			return fmt.Errorf("existing ControlPath cannot be used safely by the connection hook")
 		}
-		hook := "IN_HOME=" + shellQuote(root) + " " + shellQuote(installed) + " connect --host " + shellQuote(host) + " --control " + shellQuote(control) + " --remote " + shellQuote(*remote)
+		hook := "IN_HOME=" + shellQuote(root) + " " + shellQuote(installed) + " connect --key '%C' --host " + shellQuote(host) + " --control " + shellQuote(control) + " --remote " + shellQuote(*remote)
 		if *sshConfig != "" {
 			hook += " --config " + shellQuote(configPath)
 		}
@@ -214,7 +218,7 @@ func setup(ctx context.Context, args []string) error {
 				return fmt.Errorf("cannot verify existing SSH control path")
 			}
 			expected := filepath.Base(parseOptions(string(out))["controlpath"])
-			hook = "if [ '%C' = " + shellQuote(expected) + " ]; then " + hook + "; fi"
+			hook += " --expected-key " + shellQuote(expected)
 		}
 		stanza := "Host " + host + "\n  PermitLocalCommand yes\n  LocalCommand " + hook + "\n"
 		if ownedControl {
@@ -235,7 +239,8 @@ func setup(ctx context.Context, args []string) error {
 			return err
 		}
 		// Mosh's proxy startup sets -S none. This mode retains SSH multiplexing.
-		snippet = "if ! alias mosh >/dev/null 2>&1 && ! typeset -f mosh >/dev/null 2>&1; then\n  mosh() { command mosh --experimental-remote-ip=remote \"$@\"; }\nfi"
+		snippet = "if ! alias mosh >/dev/null 2>&1 && ! typeset -f mosh >/dev/null 2>&1; then\n  mosh() { command mosh --experimental-remote-ip=remote \"$@\"; }\nfi\n" +
+			"if ! alias et >/dev/null 2>&1 && ! typeset -f et >/dev/null 2>&1; then\n  et() { if [ -x " + shellQuote(installed) + " ]; then IN_HOME=" + shellQuote(root) + " " + shellQuote(installed) + " terminal et \"$@\"; else command et \"$@\"; fi; }\nfi"
 	}
 	snippetPath := filepath.Join(root, role+".sh")
 	if err = addFile(snippetPath, []byte(snippet+"\n"), 0600); err != nil {
@@ -265,6 +270,25 @@ func setup(ctx context.Context, args []string) error {
 		return err
 	}
 	changes = append(changes, edit{manifestPath, old, append(data, '\n'), 0600, exists})
+	// An older relay may speak a different wire version. Let its own installed
+	// executable stop it before replacement, while preserving SSH masters and ET terminals.
+	if changes[0].existed && string(changes[0].before) != string(changes[0].after) {
+		// The previous binary may itself take setup.lock while stopping.
+		owner.Close()
+		upgradeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		command := exec.CommandContext(upgradeCtx, installed, "stop")
+		command.Stdout = io.Discard
+		command.Stderr = io.Discard
+		stopErr := command.Run()
+		cancel()
+		owner, err = lock(filepath.Join(root, "setup.lock"))
+		if err != nil {
+			return fmt.Errorf("another setup is running")
+		}
+		if stopErr != nil {
+			return fmt.Errorf("previous integration could not stop; retry setup after stopping it")
+		}
+	}
 	if err = applyEdits(changes); err != nil {
 		return err
 	}
@@ -330,6 +354,9 @@ func sshOptions(ctx context.Context, host string, data []byte, exists bool, path
 		}
 		file.Close()
 		args = append(args, "-F", file.Name())
+	} else if custom {
+		// A new custom file starts empty; do not inherit the unrelated default configuration.
+		args = append(args, "-F", os.DevNull)
 	}
 	args = append(args, host)
 	command := exec.CommandContext(ctx, "ssh", args...)
@@ -502,16 +529,35 @@ func status() error {
 	return nil
 }
 
-// stop waits for owned coordinators and relays to release their locks, preserving SSH masters.
+// stop fences new registrations and waits for owned bridges, preserving SSH masters.
 func stop() error {
 	root, err := stateDir()
 	if err != nil {
 		return err
 	}
+	owner, err := lock(filepath.Join(root, "setup.lock"))
+	if err != nil {
+		return fmt.Errorf("another setup is running")
+	}
+	defer owner.Close()
+	return stopOwned(root)
+}
+
+// stopOwned stops registered bridges while the caller holds setup.lock.
+func stopOwned(root string) error {
+	if _, err := startupStamp(root); err != nil {
+		return err
+	}
+	if err := atomicWrite(filepath.Join(root, "start-stamp"), []byte(requestID()+"\n"), 0600); err != nil {
+		return fmt.Errorf("cannot fence bridge startup")
+	}
 	deadline := time.Now().Add(8 * time.Second)
 	for _, prefix := range []string{"l-", "r-"} {
 		paths, _ := filepath.Glob(filepath.Join(root, prefix+"*.lock"))
 		for _, path := range paths {
+			if strings.Count(filepath.Base(path), ".") != 1 {
+				continue
+			}
 			for {
 				owner, err := lock(path)
 				if err == nil {
@@ -598,7 +644,7 @@ func uninstall() error {
 	if err = applyEdits(changes); err != nil {
 		return err
 	}
-	if err = stop(); err != nil {
+	if err = stopOwned(root); err != nil {
 		return err
 	}
 	for _, path := range remove {

@@ -42,11 +42,15 @@ class LoginIntegration(unittest.TestCase):
         self.port = self.free_port('127.0.0.1')
         self.run_local(str(ROOT / 'bin/in'), 'setup', 'remote', '--shell-file', str(self.remote_rc),
                        env=dict(os.environ, IN_HOME=str(self.remote)))
-        self.write_executable('session', '#!/bin/sh\nexport IN_HOME=' + shlex.quote(str(self.remote)) +
+        # sshd's restricted environment may omit Mosh's binary and UTF-8 locale.
+        mosh_path = str(Path(shutil.which('mosh-server')).parent) if shutil.which('mosh-server') else ''
+        self.write_executable('session', '#!/bin/sh\nexport PATH=' + shlex.quote(mosh_path) + ':"$PATH"' +
+                              '\nexport LC_ALL=C.UTF-8' +
+                              '\nexport IN_HOME=' + shlex.quote(str(self.remote)) +
                               '\n. ' + shlex.quote(str(self.remote_rc)) +
                               '\nexec /bin/sh -c "$SSH_ORIGINAL_COMMAND"\n')
         self.write_executable('remote-in', '#!/bin/sh\nif [ "$1" = pipe ]; then\n  exec ' +
-                              shlex.quote(str(self.remote / 'bin/in')) + ' pipe 127.0.0.2 "$3" "$4"\nfi\nexec ' +
+                              shlex.quote(str(self.remote / 'bin/in')) + ' pipe 127.0.0.2 "$3" "$4" "${5:-}"\nfi\nexec ' +
                               shlex.quote(str(self.remote / 'bin/in')) + ' "$@"\n')
         self.write_executable('browser', '#!' + sys.executable + '\n' + '''import json, os, socket, sys, time
 from pathlib import Path
@@ -55,6 +59,11 @@ url = sys.argv[1]
 values = parse_qs(urlsplit(url).query)
 callback = urlsplit(values['redirect_uri'][0])
 port = callback.port
+def record(value):
+    path = Path(os.environ['IN_HOME'], 'browser-result')
+    pending = path.with_name('browser-result.' + str(os.getpid()))
+    pending.write_text(value)
+    pending.replace(path)
 try:
     if os.environ.get('IN_FIXTURE_PRECONNECT'):
         with socket.create_connection(('127.0.0.1', port), timeout=15): pass
@@ -65,9 +74,9 @@ try:
         response = b''
         while chunk := conn.recv(4096):
             response += chunk
-    Path(os.environ['IN_HOME'], 'browser-result').write_text('ok' if response.endswith(b'approved') else 'bad response')
+    record('ok' if response.endswith(b'approved') else 'bad response')
 except Exception:
-    Path(os.environ['IN_HOME'], 'browser-result').write_text('transport failed')
+    record('transport failed')
 ''')
         self.write_executable('login', '#!' + sys.executable + '\n' + '''import os, socket, subprocess, sys
 from urllib.parse import quote
@@ -202,7 +211,7 @@ ForceCommand {self.root}/session
         port = self.free_port('127.0.0.2')
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        command = '. ' + shlex.quote(str(self.rc)) + '; mosh --ssh=' + shlex.quote('ssh -F ' + str(self.config)) + ' fixture -- ' + shlex.quote(str(self.root / 'login')) + f' {port} late'
+        command = '. ' + shlex.quote(str(self.rc)) + '; mosh --no-ssh-pty --ssh=' + shlex.quote('ssh -F ' + str(self.config)) + ' fixture -- ' + shlex.quote(str(self.root / 'login')) + f' {port} late'
         env = dict(self.env, TERM='xterm-256color', LC_ALL='C.UTF-8')
         proc = subprocess.Popen(['bash', '-c', command], stdin=slave, stdout=slave, stderr=slave, env=env)
         os.close(slave)
@@ -218,6 +227,48 @@ ForceCommand {self.root}/session
             self.assert_browser_completed()
         finally:
             if proc.poll() is None: proc.kill(); proc.wait()
+            os.close(master)
+
+    def test_mosh_login_survives_ssh_master_replacement(self):
+        """A live Mosh terminal can authenticate after its original SSH master exits."""
+        if not shutil.which('mosh') or not shutil.which('mosh-server'): self.skipTest('Mosh is not installed')
+        ready = self.root / 'mosh-ready'
+        release = self.root / 'mosh-release'
+        port = self.free_port('127.0.0.2')
+        self.write_executable('gated-login', '#!/bin/sh\n' +
+                              'printf "%s" "$SSH_CONNECTION" >' + shlex.quote(str(ready)) + '\n' +
+                              'n=0\nwhile [ ! -e ' + shlex.quote(str(release)) + ' ] && [ "$n" -lt 400 ]; do\n' +
+                              '  sleep .05\n  n=$((n + 1))\ndone\n' +
+                              '[ -e ' + shlex.quote(str(release)) + ' ] || exit 1\n' +
+                              'exec ' + shlex.quote(str(self.root / 'login')) + f' {port} late\n')
+        master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+        command = '. ' + shlex.quote(str(self.rc)) + '; mosh --no-ssh-pty --ssh=' + \
+                  shlex.quote('ssh -F ' + str(self.config)) + ' fixture -- ' + \
+                  shlex.quote(str(self.root / 'gated-login'))
+        proc = subprocess.Popen(['bash', '-c', command], stdin=slave, stdout=slave, stderr=slave,
+                                env=dict(self.env, TERM='xterm-256color', LC_ALL='C.UTF-8'))
+        os.close(slave)
+        try:
+            deadline = time.monotonic() + 12
+            while not ready.exists() and proc.poll() is None and time.monotonic() < deadline: time.sleep(.03)
+            if not ready.exists():
+                os.set_blocking(master, False)
+                try: diagnostic = os.read(master, 16384).decode(errors='replace')
+                except OSError: diagnostic = ''
+                diagnostic = '\n'.join(line for line in diagnostic.splitlines() if 'MOSH CONNECT' not in line)
+                self.fail('Mosh terminal did not reach the login gate: ' + diagnostic)
+            self.assertTrue(ready.read_text().strip(), 'Mosh terminal lost its original SSH connection tuple')
+            self.run_local('ssh', '-F', str(self.config), '-O', 'exit', 'fixture', timeout=5)
+            self.assertIsNone(proc.poll(), 'Mosh terminal exited with its SSH master')
+            self.assertEqual(self.ssh('printf reconnected').stdout, 'reconnected')
+            release.touch()
+            proc.wait(timeout=25)
+            self.assertEqual(proc.returncode, 0, 'Mosh login failed after SSH master replacement')
+            self.assert_browser_completed()
+        finally:
+            release.touch()
+            if proc.poll() is None: proc.kill(); proc.wait(timeout=5)
             os.close(master)
 
     def test_preconnect_does_not_consume_route(self):
@@ -336,7 +387,10 @@ with socket.socket() as listener:
             unrelated.settimeout(.2)
             port = unrelated.getsockname()[1]
             url = f'https://provider.invalid/authorize?response_type=code&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A{port}%2Fcallback'
-            self.ssh('"$BROWSER" ' + shlex.quote(url))
+            # Keep a real CLI ancestor alive through hook acknowledgement; a shell may exec the hook.
+            self.write_executable('unrelated-open', '#!' + sys.executable + '\nimport os,subprocess,sys\n' +
+                                  'sys.exit(subprocess.run([os.environ["BROWSER"],sys.argv[1]]).returncode)\n')
+            self.ssh(shlex.quote(str(self.root / 'unrelated-open')) + ' ' + shlex.quote(url))
             result = self.local / 'browser-result'
             deadline = time.monotonic() + 5
             while not result.exists() and time.monotonic() < deadline: time.sleep(.02)
@@ -386,6 +440,100 @@ with socket.socket() as listener:
         self.run_local(str(ROOT / 'bin/in'), 'stop')
         self.run_local('ssh', '-F', str(self.config), '-O', 'check', 'fixture')
 
+    def test_existing_coordinator_refreshes_helper_settings(self):
+        """Repeating setup updates a live coordinator instead of retaining its old helper path."""
+        self.assertEqual(self.ssh('printf connected').stdout, 'connected')
+        next_helper = self.root / 'updated-in'
+        marker = self.root / 'updated-helper-used'
+        self.write_executable('updated-in', '#!/bin/sh\n: >' + shlex.quote(str(marker)) +
+                              '\nexec ' + shlex.quote(str(self.root / 'remote-in')) + ' "$@"\n')
+        self.run_local(str(ROOT / 'bin/in'), 'setup', 'laptop', '--shell-file', str(self.rc),
+                       '--ssh-config', str(self.config), '--remote', str(next_helper), 'fixture')
+        port = self.free_port('127.0.0.2')
+        self.assertEqual(self.ssh(shlex.quote(str(self.root / 'login')) + f' {port}').stdout.strip(),
+                         'authenticated fixture')
+        self.assertTrue(marker.exists(), 'coordinator kept its old helper settings')
+        self.assert_browser_completed()
+
+    def test_command_line_control_paths_join_only_the_selected_master(self):
+        """Both SSH override forms route callbacks through their actual, test-owned master."""
+        self.run_local(str(ROOT / 'bin/in'), 'uninstall')
+        ordinary = self.root / 'ordinary-master'
+        self.config.write_text(self.base_config + '\nHost fixture\n  ControlMaster auto\n  ControlPath ' + str(ordinary) + '\n  ControlPersist 600\n')
+        self.run_local('ssh', '-F', str(self.config), '-N', '-f', 'fixture')
+        self.run_local(str(ROOT / 'bin/in'), 'setup', 'laptop', '--shell-file', str(self.rc),
+                       '--ssh-config', str(self.config), '--remote', str(self.root / 'remote-in'), 'fixture')
+        try:
+            for name, override in (('socket-option', '-S'), ('config-option', '-oControlPath=')):
+                with self.subTest(override=name):
+                    selected = self.root / name
+                    args = [override, str(selected)] if override == '-S' else [override + str(selected)]
+                    try:
+                        port = self.free_port('127.0.0.2')
+                        result = self.run_local('ssh', '-F', str(self.config), *args,
+                                                '-oControlMaster=auto', '-oControlPersist=600', 'fixture',
+                                                shlex.quote(str(self.root / 'login')) + f' {port}')
+                        self.assertEqual(result.stdout.strip(), 'authenticated fixture')
+                        self.assert_browser_completed()
+                        self.run_local('ssh', '-F', str(self.config), '-S', str(selected), '-O', 'check', 'fixture')
+                        self.run_local('ssh', '-F', str(self.config), '-S', str(ordinary), '-O', 'check', 'fixture')
+                    finally:
+                        subprocess.run(['ssh', '-F', str(self.config), '-S', str(selected), '-O', 'exit', 'fixture'],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                        (self.local / 'browser-result').unlink(missing_ok=True)
+            self.run_local('ssh', '-F', str(self.config), '-S', str(ordinary), '-O', 'check', 'fixture')
+        finally:
+            subprocess.run(['ssh', '-F', str(self.config), '-S', str(ordinary), '-O', 'exit', 'fixture'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+
+    def test_proxy_command_byte_stream_preserves_callback(self):
+        """An authenticated SSH byte proxy can carry a target login and its callback."""
+        proxy = self.root / 'byte-proxy'
+        marker = self.root / 'proxy-used'
+        self.write_executable('byte-proxy', '#!/bin/sh\n: >' + shlex.quote(str(marker)) +
+                              '\nexec ssh -F ' + shlex.quote(str(self.config)) + ' -W "$1:$2" jump\n')
+        self.config.write_text(self.config.read_text() + '\nHost jump\n  HostName 127.0.0.1\n  Port ' +
+                               str(self.port) + '\n  User ' + os.environ.get('USER', 'runner') +
+                               '\n  IdentityFile ' + str(self.root / 'client') +
+                               '\n  IdentitiesOnly yes\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' +
+                               '\nHost fixture\n  ProxyCommand ' + str(proxy) + ' %h %p\n')
+        port = self.free_port('127.0.0.2')
+        result = self.ssh(shlex.quote(str(self.root / 'login')) + f' {port}')
+        self.assertEqual(result.stdout.strip(), 'authenticated fixture')
+        self.assertTrue(marker.exists(), 'SSH did not use the byte proxy')
+        self.assert_browser_completed()
+
+    def test_proxy_jump_preserves_callback(self):
+        """A jump host's direct TCP channel carries the target login and callback."""
+        self.config.write_text(self.config.read_text() + '\nHost jump\n  HostName 127.0.0.1\n  Port ' +
+                               str(self.port) + '\n  User ' + os.environ.get('USER', 'runner') +
+                               '\n  IdentityFile ' + str(self.root / 'client') +
+                               '\n  IdentitiesOnly yes\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' +
+                               '\nHost fixture\n  ProxyJump jump\n')
+        port = self.free_port('127.0.0.2')
+        result = self.ssh(shlex.quote(str(self.root / 'login')) + f' {port}')
+        self.assertEqual(result.stdout.strip(), 'authenticated fixture')
+        self.assert_browser_completed()
+
+    def test_missing_master_attach_never_uses_proxy_authentication(self):
+        """Internal attach fails closed without invoking a configured authentication proxy."""
+        marker = self.root / 'unexpected-proxy'
+        proxy = self.root / 'auth-proxy'
+        self.write_executable('auth-proxy', '#!/bin/sh\n: >' + shlex.quote(str(marker)) + '\nexit 1\n')
+        config = self.root / 'missing-master.conf'
+        config.write_text(self.base_config + '\nHost fixture\n  ProxyCommand ' + str(proxy) + '\n')
+        fresh = self.root / 'fresh-laptop'
+        self.run_local(str(ROOT / 'bin/in'), 'setup', 'laptop', '--shell-file', str(self.root / 'fresh.rc'),
+                       '--ssh-config', str(config), '--remote', str(self.root / 'remote-in'), 'fixture',
+                       env=dict(self.env, IN_HOME=str(fresh)))
+        result = subprocess.run([str(ROOT / 'bin/in'), 'attach', '--host', 'fixture',
+                                 '--control', str(self.root / 'absent-master'), '--config', str(config),
+                                 '--remote', str(self.root / 'remote-in')], env=dict(self.env, IN_HOME=str(fresh)),
+                                capture_output=True, text=True, timeout=8)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists(), 'attach attempted fresh proxy authentication')
+        self.assertIn('remote bridge unavailable', result.stderr)
+
     def test_tmux_routes_the_attached_session(self):
         """A tmux pane resolves its sole attached client's SSH route at request time."""
         if not shutil.which('tmux'): self.skipTest('tmux is not installed')
@@ -421,7 +569,7 @@ with socket.socket() as listener:
                 watchers.append(conn)
                 conn.settimeout(2)
                 conn.connect(str(paths[0]))
-                conn.sendall(b'{"version":2,"kind":"watch"}\n')
+                conn.sendall(b'{"version":3,"kind":"watch"}\n')
                 self.assertIn(b'"ready"', conn.recv(512))
             self.run_local(str(ROOT / 'bin/in'), 'stop', env=dict(self.env, IN_HOME=str(self.remote)))
             for conn in watchers: self.assertEqual(conn.recv(1), b'')

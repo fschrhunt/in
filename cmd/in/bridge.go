@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,14 +16,14 @@ import (
 
 const callbackLease = 3 * time.Minute
 
-// bridge owns laptop callback listeners; OpenSSH owns authentication and data channels.
+// bridge owns laptop callback listeners and delegates remote streams to its session transport.
 type bridge struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	peer   peer
-	mu     sync.Mutex
-	routes map[*route]bool
-	wg     sync.WaitGroup
+	ctx       context.Context
+	cancel    context.CancelFunc
+	transport callbackTransport
+	mu        sync.Mutex
+	routes    map[*route]bool
+	wg        sync.WaitGroup
 }
 
 // route owns a finite lease and every connection accepted under it.
@@ -39,9 +37,9 @@ type route struct {
 }
 
 // newBridge creates request-scoped state without starting a background service.
-func newBridge(ctx context.Context, p peer) *bridge {
+func newBridge(ctx context.Context, p callbackTransport) *bridge {
 	ctx, cancel := context.WithCancel(ctx)
-	return &bridge{ctx: ctx, cancel: cancel, peer: p, routes: map[*route]bool{}}
+	return &bridge{ctx: ctx, cancel: cancel, transport: p, routes: map[*route]bool{}}
 }
 
 // prepare admits recognized login routes and reserves their addresses before acknowledgement.
@@ -187,52 +185,34 @@ func (b *bridge) accept(r *route, l net.Listener) {
 
 // forward establishes a remote listener connection before sending bytes and never replays them.
 func (b *bridge) forward(r *route, c net.Conn) error {
-	cmd := b.peer.sshCommand(r.ctx, "pipe", r.endpoint.Host, r.endpoint.Port, r.owners)
-	stdin, err := cmd.StdinPipe()
+	ch, err := b.transport.Open(r.ctx, r.endpoint, r.owners)
 	if err != nil {
 		return err
 	}
-	defer stdin.Close()
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stopIO := context.AfterFunc(r.ctx, func() { stdin.Close(); stdout.Close() })
+	defer ch.Close()
+	stopIO := context.AfterFunc(r.ctx, func() { _ = ch.Close(); _ = c.Close() })
 	defer stopIO()
-	var diagnostic boundedBuffer
-	cmd.Stderr = &diagnostic
-	if err = cmd.Start(); err != nil {
-		return err
-	}
-	waited := false
-	defer func() {
-		if !waited {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-	}()
-	reader := bufio.NewReaderSize(stdout, 4096)
 	// The remote helper retries only before connecting; no callback data has left c yet.
-	header := make([]byte, 6)
-	_, err = io.ReadFull(reader, header)
-	if err != nil || string(header) != "READY\n" {
-		return fmt.Errorf("remote listener unavailable")
+	if err := readyChannel(ch); err != nil {
+		return err
 	}
 	done := make(chan struct{}, 1)
-	go func() { _, _ = io.Copy(stdin, c); stdin.Close(); done <- struct{}{} }()
-	_, err = io.Copy(c, reader)
+	go func() { _, _ = io.Copy(ch, c); _ = ch.CloseWrite(); done <- struct{}{} }()
+	_, err = io.Copy(c, ch)
 	if tcp, ok := c.(*net.TCPConn); ok {
 		tcp.CloseWrite()
 	}
-	// The server's response EOF completes this SSH channel; unblock any browser keepalive.
+	// Response EOF completes this callback channel; unblock any browser keepalive.
 	c.Close()
 	<-done
-	waitErr := cmd.Wait()
-	waited = true
-	if waitErr == nil && bytes.Contains(diagnostic.Bytes(), []byte("IN_CALLBACK_CLOSED\n")) && len(r.slots) == 1 {
+	closed, waitErr := ch.Wait()
+	if waitErr == nil && closed && len(r.slots) == 1 {
 		r.cancel()
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return waitErr
 }
 
 // close cancels owned routes and waits for stream goroutines to release their resources.

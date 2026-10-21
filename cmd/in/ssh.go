@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,19 +17,48 @@ import (
 )
 
 // peer describes an existing SSH master, not a separate credential or host inventory.
-type peer struct{ Host, Control, Config, Remote string }
+type peer struct{ Host, Control, Config, Remote, Session string }
+
+// coordinatorRequest carries resolved hook settings when a ControlPath is reused.
+type coordinatorRequest struct {
+	Action string
+	Peer   peer
+}
+
+// coordinatorRefresh acknowledges only after the manager adopts the new authenticated hook.
+type coordinatorRefresh struct {
+	peer     peer
+	accepted chan struct{}
+}
 
 // peerArgs reads the owned connection-hook arguments without accepting shell commands.
 func peerArgs(args []string) (peer, error) {
 	var p peer
+	var key, expected string
 	f := flag.NewFlagSet("connect", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&p.Host, "host", "", "")
 	f.StringVar(&p.Control, "control", "", "")
 	f.StringVar(&p.Config, "config", "", "")
+	f.StringVar(&key, "key", "", "")
+	f.StringVar(&expected, "expected-key", "", "")
 	f.StringVar(&p.Remote, "remote", ".local/share/in/bin/in", "")
 	if f.Parse(args) != nil || f.NArg() != 0 || p.Host == "" || p.Control == "" || p.Control == "none" {
 		return p, fmt.Errorf("invalid SSH connection hook")
+	}
+	if key != "" {
+		control, config, found, err := parentControl(key)
+		if err != nil {
+			return p, err
+		}
+		if found {
+			p.Control = control
+			if config != "" {
+				p.Config = config
+			}
+		} else if expected != "" && key != expected {
+			return p, fmt.Errorf("SSH connection overrides do not match the configured control socket")
+		}
 	}
 	return p, nil
 }
@@ -54,9 +86,32 @@ func (p peer) sshCommand(ctx context.Context, command ...string) *exec.Cmd {
 
 // connect detaches the coordinator so LocalCommand never waits for the login lifecycle.
 func connect(args []string) error {
-	_, err := peerArgs(args)
+	p, err := peerArgs(args)
 	if err != nil {
 		return err
+	}
+	// A new authenticated master may reuse the old ControlPath while its old
+	// coordinator is still unwinding. Refresh that coordinator instead of losing the hook.
+	root, err := stateDir()
+	if err != nil {
+		return err
+	}
+	stamp, err := startupStamp(root)
+	if err != nil {
+		return err
+	}
+	c, e := net.DialTimeout("unix", filepath.Join(root, "l-"+digest(p.Control)+".sock"), 200*time.Millisecond)
+	if e == nil {
+		c.SetDeadline(time.Now().Add(time.Second))
+		e = json.NewEncoder(c).Encode(coordinatorRequest{Action: "refresh", Peer: p})
+		var reply [3]byte
+		if e == nil {
+			_, e = io.ReadFull(c, reply[:])
+		}
+		c.Close()
+		if e == nil && string(reply[:]) == "ok\n" {
+			return nil
+		}
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -67,7 +122,12 @@ func connect(args []string) error {
 		return err
 	}
 	defer null.Close()
-	cmd := exec.Command(exe, append([]string{"attach"}, args...)...)
+	childArgs := []string{"attach", "--host", p.Host, "--control", p.Control, "--remote", p.Remote}
+	if p.Config != "" {
+		childArgs = append(childArgs, "--config", p.Config)
+	}
+	cmd := exec.Command(exe, childArgs...)
+	cmd.Env = withStartupStampEnv(os.Environ(), stamp)
 	cmd.Stdin = null
 	cmd.Stdout = null
 	cmd.Stderr = null
@@ -78,7 +138,7 @@ func connect(args []string) error {
 	return cmd.Process.Release()
 }
 
-// attach owns one coordinator per SSH master and expires all callbacks on disconnect.
+// attach owns a control socket and refreshes its session only after an authenticated connection hook.
 func attach(parent context.Context, args []string) error {
 	p, err := peerArgs(args)
 	if err != nil {
@@ -94,11 +154,27 @@ func attach(parent context.Context, args []string) error {
 	}
 	defer gate.Close()
 	base := filepath.Join(root, "l-"+digest(p.Control))
-	owner, err := lock(base + ".lock")
-	if err != nil {
-		return nil
+	var owner *os.File
+	until := time.Now().Add(3 * time.Second)
+	for {
+		owner, err = lock(base + ".lock")
+		if err == nil {
+			break
+		}
+		if time.Now().After(until) {
+			return nil
+		}
+		select {
+		case <-parent.Done():
+			return nil
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 	defer owner.Close()
+	p.Session, err = localSession(root, p)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	listener, err := socketListener(base + ".sock")
@@ -107,6 +183,8 @@ func attach(parent context.Context, args []string) error {
 	}
 	defer listener.Close()
 	gate.Close()
+	refresh := make(chan coordinatorRefresh)
+	controlPath := p.Control
 	go func() {
 		for {
 			c, err := listener.Accept()
@@ -114,14 +192,66 @@ func attach(parent context.Context, args []string) error {
 				return
 			}
 			_ = c.SetDeadline(time.Now().Add(time.Second))
-			buf := make([]byte, 16)
-			n, _ := c.Read(buf)
-			if strings.TrimSpace(string(buf[:n])) == "stop" {
-				cancel()
+			reader := bufio.NewScanner(c)
+			reader.Buffer(make([]byte, 1024), 16*1024)
+			if reader.Scan() {
+				line := reader.Text()
+				if line == "stop" {
+					cancel()
+				} else {
+					var request coordinatorRequest
+					if json.Unmarshal([]byte(line), &request) == nil && request.Action == "refresh" && request.Peer.Control == controlPath && request.Peer.Host != "" && request.Peer.Remote != "" {
+						event := coordinatorRefresh{peer: request.Peer, accepted: make(chan struct{})}
+						select {
+						case refresh <- event:
+							select {
+							case <-event.accepted:
+								_, _ = io.WriteString(c, "ok\n")
+							case <-ctx.Done():
+							}
+						case <-ctx.Done():
+						}
+					}
+				}
 			}
 			c.Close()
 		}
 	}()
+	for {
+		sessionCtx, stopSession := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func(current peer) { done <- attachSession(sessionCtx, current) }(p)
+		var event coordinatorRefresh
+		select {
+		case <-ctx.Done():
+			stopSession()
+			<-done
+			return nil
+		case event = <-refresh:
+			stopSession()
+			<-done
+		case err := <-done:
+			stopSession()
+			select {
+			case event = <-refresh:
+			default:
+				return err
+			}
+		}
+		next := event.peer
+		next.Session, err = localSession(root, next)
+		if err != nil {
+			return err
+		}
+		p = next
+		close(event.accepted)
+	}
+}
+
+// attachSession scopes every callback to one authenticated master generation.
+func attachSession(parent context.Context, p peer) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 	cmd := p.sshCommand(ctx, "relay")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -142,18 +272,32 @@ func attach(parent context.Context, args []string) error {
 	// Joining during LocalCommand is asynchronous; bound the initial handshake.
 	readyTimer := time.AfterFunc(5*time.Second, cancel)
 	w := newWire(stdout, stdin)
+	if w.send(message{Kind: "bind", Session: p.Session}) != nil {
+		return fmt.Errorf("remote bridge unavailable")
+	}
 	hello, err := w.receive()
 	readyTimer.Stop()
 	if err != nil || hello.Kind != "ready" {
 		return fmt.Errorf("remote bridge unavailable; install in remotely and reconnect")
 	}
-	b := newBridge(ctx, p)
+	return serveRequests(ctx, w, p)
+}
+
+// serveRequests handles browser requests over an authenticated, session-bound transport.
+func serveRequests(ctx context.Context, w *wire, transport callbackTransport) error {
+	b := newBridge(ctx, transport)
 	defer b.close()
 	seen := map[string]time.Time{}
 	for {
 		m, err := w.receive()
 		if err != nil {
 			return nil
+		}
+		if m.Kind == "ping" {
+			if w.send(message{Kind: "pong"}) != nil {
+				return nil
+			}
+			continue
 		}
 		if m.Kind != "open" || len(m.ID) != 32 {
 			return fmt.Errorf("invalid browser request")
