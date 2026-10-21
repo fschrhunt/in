@@ -245,7 +245,11 @@ func TestStopInvalidatesDelayedStartup(t *testing.T) {
 
 // TestStopHoldsRegistrationGate keeps a pending registration out until its scan completes.
 func TestStopHoldsRegistrationGate(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "in")
+	root, err := os.MkdirTemp("/tmp", "in-gate-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	t.Setenv("IN_HOME", root)
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)

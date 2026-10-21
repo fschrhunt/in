@@ -31,7 +31,12 @@ func testTunnel(t *testing.T) (*terminalSession, *http.Client) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &terminalSession{ctx: ctx, cancel: cancel, pending: map[string]*pendingTunnel{}, active: map[*httpCallback]bool{}}
-	path := filepath.Join(t.TempDir(), "t.sock")
+	directory, err := os.MkdirTemp("/tmp", "in-h2-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	path := filepath.Join(directory, "t.sock")
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

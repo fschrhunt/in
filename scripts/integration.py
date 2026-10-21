@@ -59,6 +59,11 @@ url = sys.argv[1]
 values = parse_qs(urlsplit(url).query)
 callback = urlsplit(values['redirect_uri'][0])
 port = callback.port
+def record(value):
+    path = Path(os.environ['IN_HOME'], 'browser-result')
+    pending = path.with_name('browser-result.' + str(os.getpid()))
+    pending.write_text(value)
+    pending.replace(path)
 try:
     if os.environ.get('IN_FIXTURE_PRECONNECT'):
         with socket.create_connection(('127.0.0.1', port), timeout=15): pass
@@ -69,9 +74,9 @@ try:
         response = b''
         while chunk := conn.recv(4096):
             response += chunk
-    Path(os.environ['IN_HOME'], 'browser-result').write_text('ok' if response.endswith(b'approved') else 'bad response')
+    record('ok' if response.endswith(b'approved') else 'bad response')
 except Exception:
-    Path(os.environ['IN_HOME'], 'browser-result').write_text('transport failed')
+    record('transport failed')
 ''')
         self.write_executable('login', '#!' + sys.executable + '\n' + '''import os, socket, subprocess, sys
 from urllib.parse import quote
