@@ -1,5 +1,8 @@
 # Documentation
 
+- [Setup and usage](usage.md): install, use, stop, upgrade and uninstall.
+- [Architecture](architecture.md): current processes, ownership and callback lifetime.
+- [Compatibility](compatibility.md): executed checks and explicit limits.
 - [Implementation plan](plan.md): proposed architecture, research, build stages
   and acceptance criteria.
 - [Architecture audit](architecture-audit.md): findings, source evidence and
@@ -7,5 +10,5 @@
 - [Release setup](contributing/releases.md): local packaging and future GitHub setup.
 - [Contributing](../CONTRIBUTING.md): development commands and review expectations.
 
-User setup documentation will be added with the working installer. No login
-bridge or automatic shell integration is shipped by the current scaffold.
+The runtime is experimental; the compatibility record distinguishes fixture and
+launch-probe results from real provider authentication.

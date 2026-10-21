@@ -2,13 +2,18 @@
 
 ## Unreleased
 
-- Audit the architecture and move automatic SSH/Mosh bootstrap and reversible
-  installation to the first gate. Define callback lifecycle, session ownership,
-  failure isolation and evidence-based compatibility boundaries.
-- Correct the draft-release flag and job name in the copied release workflow.
-- Make reuse of existing SSH authentication and minimal setup explicit design
-  requirements; keep a resident laptop service conditional on bootstrap findings.
-- Add the proposed implementation plan for automatic remote CLI browser login.
-- Set up a Go scaffold, shared local/CI checks, documentation checks, Linux/macOS
-  CI, and four-target release archive preparation.
-- Login bridging, installation and automatic session integration are not implemented.
+- Implement the browser/callback bridge using existing authenticated SSH masters,
+  private remote browser sockets and bounded raw callback channels.
+- Add reversible laptop/remote setup, Mosh startup integration, current tmux routing,
+  status, stopping, uninstall and checksum-verified binary installation.
+- Preserve original authorization URLs and callback bytes; refuse occupied ports
+  and ambiguous remote listeners. Reap owned routes on listener shutdown or expiry.
+- Validate disposable real SSH/Mosh callbacks, late listeners, preconnects, distinct
+  laptop ownership, existing masters, tmux and unaffected file transfers.
+- Validate native Apple Silicon builds and a real macOS browser callback to Linux.
+  Exercise actual Wrangler 4.151.2, Claude Code 2.1.305 and rclone 1.75.2 listeners
+  through SSH with isolated configuration; no completed provider login is claimed.
+- Add Linux integration CI, focused unit/installer tests and four-target archives.
+- Pin callback listeners to the requesting CLI process ancestry, including detached
+  browser openers. Cancel active remote helpers when their transport relay stops.
+- Record remaining provider consent, Intel macOS and transport recovery validation.

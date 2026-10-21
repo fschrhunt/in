@@ -1,6 +1,11 @@
 # Implementation plan
 
-Status: audited proposal. Build infrastructure exists; the login bridge does not.
+Status: first implementation exists. Linux SSH/Mosh fixtures, native checks on
+two Apple Silicon Macs and a real macOS browser callback pass. Three installed
+CLI launch paths were observed; completed provider logins and automatic transport
+recovery remain unverified or unimplemented.
+Current behavior is documented in [architecture](architecture.md),
+[usage](usage.md) and [compatibility](compatibility.md).
 See the [architecture audit](architecture-audit.md) for evidence and corrections.
 
 ## Product contract
@@ -57,8 +62,12 @@ but cannot qualify the proposed product architecture.
 Start by testing an opt-in SSH configuration fragment, a small local connection
 hook, a private forwarded control socket, and remote shell initialization. This
 is a candidate, not a selected design. Compare alternatives only when this fails.
-Produce the exact configuration and process-lifetime diagram before building the
-rest of the runtime. Resolve these constraints:
+The implementation uses an owned LocalCommand, a master command channel and a
+private remote socket keyed by SSH_CONNECTION. Existing masters are attached at
+setup; multiplexed slaves on the tested OpenSSH bypass LocalCommand. Mosh requires
+a reversible shell function selecting its remote-IP startup mode. This preserves
+the user's everyday command but changes the original no-command-shim hypothesis.
+There is no automatic transport recovery yet. Resolve these remaining constraints:
 
 - LocalCommand runs synchronously and cannot access the originating SSH session.
   A hook must return promptly, avoid recursive invocation, and coexist with an
@@ -252,5 +261,5 @@ and failures understandable.
 
 Keep the product and binary named in. Bare `in setup` is invalid Bash syntax;
 use an installer or explicit executable path for one-time management. The current
-scaffold is `./bin/in`. Service managers and browser hooks execute it directly.
+source build is `./bin/in`. Service managers and browser hooks execute it directly.
 This does not add a command to daily login use.

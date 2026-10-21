@@ -13,13 +13,20 @@ in makes remote CLI browser login work with a local browser. Keep it small.
 
 ## Code map and checks
 
-`cmd/in/main.go` currently exposes help and version metadata only.
-`docs/plan.md` defines the proposed product and build gates, not shipped behavior.
-`docs/architecture-audit.md` records evidence, corrected assumptions and remaining
-feasibility questions. Prove automatic session bootstrap before runtime expansion.
-`x` is the shared local/CI entry point. `scripts/` checks documentation and builds
-release archives using the Python standard library. `.github/workflows/` runs
-those same commands. Run `./x check`; use `./x release-check` for distribution.
+`cmd/in/main.go` dispatches management commands and internal entry points.
+`ssh.go` owns laptop coordinators and channels on existing SSH masters;
+`remote.go` owns the remote browser socket, tmux routing and callback helpers.
+`bridge.go`, `url.go`, `listener.go` and `owner.go` own loopback routing, bounded
+leases and process ownership evidence.
+`setup.go` owns reversible integration; `state.go` and `wire.go` handle private
+files and the small control protocol. Tests live beside the behavior they protect.
+
+`docs/usage.md`, `docs/architecture.md` and `docs/compatibility.md` describe current
+behavior. `docs/plan.md` retains the target and remaining gates; the original audit
+is historical evidence. Do not mistake CLI launch probes for completed logins.
+`x` is the local/CI entry point. Run `./x check`, `./x integration` for transport or
+setup changes, and `./x release-check` for distribution. Integration uses disposable
+SSH keys/configuration and requires Linux, sshd, Mosh and tmux. No personal setup.
 
 ## Design contracts
 

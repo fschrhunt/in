@@ -41,6 +41,7 @@ def package(version, output, notes):
                 bundle.add(binary, arcname="in")
                 bundle.add(ROOT / "LICENSE", arcname="LICENSE")
                 bundle.add(ROOT / "README.md", arcname="README.md")
+                bundle.add(ROOT / "install.sh", arcname="install.sh")
                 bundle.add(ROOT / "docs", arcname="docs")
                 for name in ("CONTRIBUTING.md", "AGENTS.md", "SECURITY.md", "CHANGELOG.md"):
                     bundle.add(ROOT / name, arcname=name)

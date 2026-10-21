@@ -1,15 +1,16 @@
 # Release setup
 
-in has no published release or installer. The module path reserves
+in has no published release. `install.sh` verifies a selected release archive,
+checks its binary version and installs it atomically; it does not run setup. The module path reserves
 `github.com/arocomputer/in` as the intended location; this setup does not create
 that GitHub repository or configure a remote.
 
 ## Local verification
 
-Run `./x check` and `./x release-check`. The latter cross-builds Linux/macOS on
+Run `./x check`, `./x integration` on Linux, and `./x release-check`. The latter cross-builds Linux/macOS on
 amd64/arm64, checks archive contents and SHA-256 manifests, then removes its
 temporary output. These checks do not validate runtime behavior on all targets.
-Archives contain the executable, license, README, documentation and policies.
+Archives contain the executable, installer, license, README, documentation and policies.
 Source builds report `dev`; release builds embed their `vX.Y.Z` version.
 
 For local versioned packaging, add a nonempty `## X.Y.Z` section to
@@ -21,7 +22,7 @@ Checksums detect corruption; binaries are unsigned and not notarized.
 
 Use `main` as the default branch. Enable Actions and private vulnerability
 reporting. Configure required checks `check (ubuntu-latest)`,
-`check (macos-latest)`, and `release-check`, and maintainer review.
+`check (macos-latest)`, `integration`, and `release-check`, and maintainer review.
 CODEOWNERS routes review requests; it does not enforce approval.
 Action versions follow the pinned revisions in aft; monthly Dependabot proposals
 keep them reviewable. There are no external Go dependencies to update yet.

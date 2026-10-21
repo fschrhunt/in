@@ -66,6 +66,10 @@ jobs:
           go-version-file: go.mod
           cache: false
       - run: ./x check
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y openssh-server mosh tmux
+      - if: runner.os == 'Linux'
+        run: ./x integration
 
   build:
     needs: [resolve, check]

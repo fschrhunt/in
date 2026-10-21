@@ -13,6 +13,8 @@ checks. Build alone needs Go and a shell.
 | `./x fmt` | Format Go source |
 | `./x fmt --check` | Check formatting without changing files |
 | `./x test` | Run race-enabled Go tests and infrastructure tests |
+| `./x integration` | Exercise installed hooks over disposable SSH/Mosh/tmux on Linux |
+| `./x compatibility` | Observe installed CLI launch shapes in isolated configuration; no provider consent |
 | `./x docs` | Check local documentation links and guide metadata when present |
 | `./x build` | Build `bin/in` |
 | `./x check` | Check formatting, vet, tests, docs, and native build |
@@ -20,8 +22,10 @@ checks. Build alone needs Go and a shell.
 | `./x dist vX.Y.Z` | Write local archives, checksums and changelog notes; never publish |
 
 CI runs checks on Linux and macOS, plus cross-platform packaging on Linux.
-Cross-compilation is not runtime validation. The scaffold has no login tests yet;
-add tests for actual bridge behavior as it is implemented, not metadata smoke tests.
+Cross-compilation is not runtime validation. Integration tests use a real disposable SSH server and a loopback fixture adapter
+to represent two machines on one kernel. See [compatibility](docs/compatibility.md)
+for limits. A real laptop/server check is still required before claiming macOS
+provider authentication. Avoid metadata smoke tests.
 
 Explain the problem, resulting behavior, and actual validation in each PR.
 Update affected docs and [the changelog](CHANGELOG.md). Keep tests offline and
