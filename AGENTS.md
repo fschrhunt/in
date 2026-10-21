@@ -18,6 +18,7 @@ in makes remote CLI browser login work with a local browser. Keep it small.
 `remote.go` owns the remote browser socket, tmux routing and callback helpers.
 `bridge.go`, `url.go`, `listener.go` and `owner.go` own loopback routing, bounded
 leases and process ownership evidence.
+`opener.go` captures PATH-resolved browser requests and delegates native file/dev opens.
 `setup.go` owns reversible integration; `state.go` and `wire.go` handle private
 files and the small control protocol. Tests live beside the behavior they protect.
 

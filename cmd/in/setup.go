@@ -137,12 +137,21 @@ func setup(ctx context.Context, args []string) error {
 	var activation *peer
 	if role == "remote" {
 		browser := filepath.Join(root, "bin", "browser")
+		openers := filepath.Join(root, "openers")
+		if err = privateDir(openers); err != nil {
+			return err
+		}
 		// A tiny launcher avoids relying on BROWSER's inconsistent argument splitting.
 		script := "#!/bin/sh\nIN_HOME=" + shellQuote(root) + " exec " + shellQuote(installed) + " browse \"$@\"\n"
 		if err = addFile(browser, []byte(script), 0700); err != nil {
 			return err
 		}
-		snippet = "if [ -n \"${SSH_CONNECTION:-}\" ] && { [ -z \"${BROWSER:-}\" ] || [ \"$BROWSER\" = " + shellQuote(browser) + " ]; }; then\n  export IN_HOME=" + shellQuote(root) + "\n  export BROWSER=" + shellQuote(browser) + "\nfi"
+		// Keep the xdg-open shim outside bin so only guarded remote shells see it.
+		opener := "#!/bin/sh\nIN_HOME=" + shellQuote(root) + " exec " + shellQuote(installed) + " open \"$@\"\n"
+		if err = addFile(filepath.Join(openers, "xdg-open"), []byte(opener), 0700); err != nil {
+			return err
+		}
+		snippet = "if [ -n \"${SSH_CONNECTION:-}\" ] && { [ -z \"${BROWSER:-}\" ] || [ \"$BROWSER\" = " + shellQuote(browser) + " ]; }; then\n  export IN_HOME=" + shellQuote(root) + "\n  export BROWSER=" + shellQuote(browser) + "\n  case :\"$PATH\": in\n    *:" + shellQuote(openers) + ":*) ;;\n    *) export PATH=" + shellQuote(openers) + ":\"$PATH\" ;;\n  esac\nfi"
 	} else {
 		host := f.Arg(0)
 		if strings.ContainsAny(*remote+*sshConfig, "\r\n%") {

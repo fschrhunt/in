@@ -228,11 +228,53 @@ func TestRemoteSetupLeavesLocalTmuxAlone(t *testing.T) {
 	if err := setup(context.Background(), []string{"remote", "--shell-file", rc}); err != nil {
 		t.Fatal(err)
 	}
-	output, err := exec.Command("/bin/sh", "-c", `. "$1"; printf '%s' "${BROWSER:-}"`, "sh", rc).Output()
+	originalPath := os.Getenv("PATH")
+	output, err := exec.Command("/bin/sh", "-c", `. "$1"; printf '%s\n%s' "${BROWSER:-}" "$PATH"`, "sh", rc).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(output) != 0 {
-		t.Fatal("local tmux installed a remote browser hook")
+	if string(output) != "\n"+originalPath {
+		t.Fatal("local tmux installed remote browser hooks")
+	}
+}
+
+// TestRemoteSetupGuardsOpenersPATH checks SSH activation, user overrides and repeat sourcing.
+func TestRemoteSetupGuardsOpenersPATH(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "in")
+	t.Setenv("IN_HOME", root)
+	rc := filepath.Join(t.TempDir(), "rc")
+	if err := setup(context.Background(), []string{"remote", "--shell-file", rc}); err != nil {
+		t.Fatal(err)
+	}
+	openers := filepath.Join(root, "openers")
+	shim, err := os.ReadFile(filepath.Join(openers, "xdg-open"))
+	if err != nil || !strings.Contains(string(shim), ` open "$@"`) {
+		t.Fatal("owned xdg-open shim missing")
+	}
+	basePath := os.Getenv("PATH")
+	t.Setenv("SSH_CONNECTION", "fixture")
+	t.Setenv("BROWSER", "")
+	command := `. "$1"; . "$1"; printf '%s\n%s' "$BROWSER" "$PATH"`
+	output, err := exec.Command("/bin/sh", "-c", command, "sh", rc).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "bin", "browser") + "\n" + openers + ":" + basePath
+	if string(output) != want {
+		t.Fatalf("remote activation: got %q, want %q", output, want)
+	}
+	t.Setenv("BROWSER", "user-browser")
+	output, err = exec.Command("/bin/sh", "-c", command, "sh", rc).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(output) != "user-browser\n"+basePath {
+		t.Fatal("explicit BROWSER override was replaced")
+	}
+	if err := uninstall(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(openers, "xdg-open")); !os.IsNotExist(err) {
+		t.Fatal("uninstall retained the owned xdg-open shim")
 	}
 }

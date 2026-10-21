@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,8 +47,7 @@ func processIdentity(pid int) (processRef, int, string, error) {
 	return processRef{pid, fields[19]}, parent, string(data[begin+1 : end]), err
 }
 
-// browserOwners snapshots the browser launcher's ancestors while the original CLI is alive.
-// A detached service or sibling listener has no demonstrated ownership and is unsupported.
+// browserOwners snapshots ancestors for a callback that has not started listening yet.
 func browserOwners() (string, error) {
 	var refs []string
 	pid := os.Getppid()
@@ -92,8 +92,52 @@ func parseOwners(value string) ([]processRef, error) {
 	return refs, nil
 }
 
-// listenerOwned requires a captured, still-live CLI ancestor to hold this exact socket.
+// socketIdentity decodes a pinned inode and its canonical numeric loopback address.
+// A process reference returns nil; malformed socket evidence is always an error.
+func socketIdentity(value string) (*listenerInfo, error) {
+	text, ok := strings.CutPrefix(value, "socket:")
+	if !ok {
+		return nil, nil
+	}
+	inode, host, ok := strings.Cut(text, "@")
+	n, err := strconv.ParseUint(inode, 10, 64)
+	ip := net.ParseIP(host)
+	if !ok || err != nil || n == 0 || strconv.FormatUint(n, 10) != inode || ip == nil || !ip.IsLoopback() || ip.String() != host {
+		return nil, fmt.Errorf("invalid callback socket identity")
+	}
+	return &listenerInfo{host: host, inode: inode}, nil
+}
+
+// validOwnership accepts either a pinned socket or bounded process identities for a late listener.
+func validOwnership(value string) error {
+	pinned, err := socketIdentity(value)
+	if err != nil || pinned != nil {
+		return err
+	}
+	_, err = parseOwners(value)
+	return err
+}
+
+// callbackOwner pins an existing private listener declared by the OAuth URL, regardless of process layout.
+// A listener that starts after the browser hook returns must be held by a captured launching ancestor.
+func callbackOwner(ep endpoint) (string, error) {
+	listener, err := callbackListener(ep.Host, ep.Port)
+	if err != nil {
+		return "", err
+	}
+	if listener != nil {
+		return "socket:" + listener.inode + "@" + listener.host, nil
+	}
+	return browserOwners()
+}
+
+// listenerOwned checks a pinned socket, or requires a captured live ancestor for late startup.
+// Socket discovery separately enforces the current account and private loopback address.
 func listenerOwned(inode, owners string) bool {
+	pinned, err := socketIdentity(owners)
+	if err != nil || pinned != nil {
+		return err == nil && pinned.inode == inode
+	}
 	refs, err := parseOwners(owners)
 	if err != nil {
 		return false

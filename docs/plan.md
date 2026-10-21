@@ -1,7 +1,7 @@
 # Implementation plan
 
 Status: first implementation exists. Linux SSH/Mosh fixtures, native checks on
-two Apple Silicon Macs and a real macOS browser callback pass. Three installed
+two Apple Silicon Macs and a real macOS browser callback pass. Five installed
 CLI launch paths were observed; completed provider logins and automatic transport
 recovery remain unverified or unimplemented.
 Current behavior is documented in [architecture](architecture.md),
@@ -194,7 +194,9 @@ steps, not URLs or callback contents. No idle success messages or telemetry.
 | Several laptops sharing a pane | Explicit ambiguity failure; no guessed routing |
 | Containers, nested SSH, sudo, custom schemes, local HTTPS | Track separately; no automatic expansion of the first release |
 
-BROWSER and PATH shims are mechanisms to test, not universal contracts. Some
+BROWSER and a guarded PATH shim for xdg-open are implemented interception points,
+not universal contracts. Existing private callbacks are pinned by socket identity
+to support service-owned listeners; late listeners still need captured ancestors. Some
 libraries use bundled or absolute launcher paths, detach the child, or discard
 its output. Keep existing browser overrides and desktop openers working. A tiny
 compatibility shim may be justified by evidence; a general provider plugin

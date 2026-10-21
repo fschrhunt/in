@@ -60,3 +60,52 @@ func TestListenerOwnershipPinsTheRequestProcess(t *testing.T) {
 		t.Fatal("unrelated ancestors accepted")
 	}
 }
+
+// TestDeclaredCallbackPinsServiceSocket allows a non-ancestor service without accepting a replacement listener.
+func TestDeclaredCallbackPinsServiceSocket(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux remote socket evidence")
+	}
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	ep := endpoint{Host: "127.0.0.1", Port: port}
+	owner, err := callbackOwner(ep)
+	if err != nil || validOwnership(owner) != nil {
+		t.Fatal("existing callback was not pinned", err)
+	}
+	listener, err := callbackListener(ep.Host, ep.Port)
+	if err != nil || listener == nil || !listenerOwned(listener.inode, owner) {
+		t.Fatal("service callback rejected", err)
+	}
+	// The test process owns the socket but is not an ancestor of browserOwners.
+	ancestors, err := browserOwners()
+	if err == nil && listenerOwned(listener.inode, ancestors) {
+		t.Fatal("fixture unexpectedly satisfies ancestor-only policy")
+	}
+	l.Close()
+	replacement, err := net.Listen("tcp4", net.JoinHostPort(ep.Host, port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+	listener, err = callbackListener(ep.Host, ep.Port)
+	if err != nil || listener == nil {
+		t.Fatal("replacement not found", err)
+	}
+	if listenerOwned(listener.inode, owner) {
+		t.Fatal("replacement received the original callback permission")
+	}
+}
+
+// TestSocketIdentityRejectsMalformedProof prevents empty, zero and noncanonical inode references.
+func TestSocketIdentityRejectsMalformedProof(t *testing.T) {
+	for _, value := range []string{"socket:", "socket:0", "socket:01", "socket:-1", "socket:1,2", "socket:18446744073709551616@127.0.0.1", "socket:1@localhost", "socket:1@0.0.0.0", "socket:1@192.168.0.1", "socket:1@::01"} {
+		if validOwnership(value) == nil {
+			t.Fatal("malformed socket identity accepted")
+		}
+	}
+}

@@ -41,7 +41,10 @@ already have one, it must select this mode for Mosh integration to work.
 ## What setup changes
 
 The remote setup installs a small browser launcher and a shell fragment. In shells
-with SSH_CONNECTION it supplies BROWSER only when unset or already managed by in.
+with SSH_CONNECTION it supplies BROWSER only when unset or already managed by in,
+and adds a dedicated PATH directory containing only an xdg-open shim. Re-sourcing
+the fragment does not duplicate that entry. Files, options and direct dev URLs
+passed to xdg-open retain the native opener; no callback forwarding is started.
 A local tmux session alone does not enable the hook. An old pane created locally
 may need a new shell after attaching over SSH.
 An existing custom BROWSER remains authoritative and may bypass in.
@@ -55,7 +58,8 @@ has LocalCommand, rather than guessing how to compose shell commands. It does
 not replace RemoteCommand or ProxyCommand in your normal session.
 
 The fragments are sourced from `.zshrc`, or from `.bashrc` and `.bash_profile`.
-Each block has an exact ownership record. Installation can be repeated to update
+Each block has an exact ownership record. Update both machines together: wire
+version 2 rejects older peers explicitly. Installation can be repeated to update
 the owned binary and fragments; edited generated files or edited managed blocks
 cause a refusal. Unrelated configuration and later edits outside those blocks
 survive uninstall. Symlinked initialization/configuration files must be resolved
@@ -118,20 +122,24 @@ exceptions require observed tool behavior and focused tests.
 - **Callback port occupied:** in refuses the request without opening the browser.
   It does not evict another process or change the CLI's redirect URI. A callback
   lease closes when listener shutdown is observed, otherwise after three minutes.
+  A retry can reclaim an idle lease when a new socket at the same endpoint proves
+  the old listener closed; active callback responses are never displaced.
 - **Listener not ready:** the remote helper waits up to ten seconds before sending
   callback bytes. It does not replay bytes after delivery has begun.
 - **Ambiguous localhost listener:** the remote helper refuses when both loopback
   families have separate matching listeners. Only private listeners owned by the
-  current remote account qualify; wildcard listeners are not supported. The socket
-  must belong to a captured ancestor of the browser hook, identified by PID and
-  start time. Sibling subprocess listeners and detached services are refused.
+  current remote account qualify; wildcard listeners are not supported. Existing
+  sockets are pinned at browser-request time, including sockets in background
+  services. A closed or replaced socket is refused. A late-starting listener must
+  belong to a captured ancestor of the browser hook, identified by PID/start time.
+  Services must start their callback listener before requesting the browser.
 - **tmux ambiguity:** exactly one client must be attached to the session. The hook
   reads its current session SSH_CONNECTION at request time. Configure tmux's
   update-environment to retain SSH_CONNECTION if you have overridden its defaults.
   Two clients attached to one session are intentionally refused.
 - **Hidden/bypassed callback:** in supports explicit OAuth authorization-code redirects and the
   verified rclone direct login entry point. It does not infer hidden endpoints, scrape terminal
-  output, or change device flows. A remote callback address different from the
+  output, intercept absolute/bundled launchers, or change device flows. A remote callback address different from the
   advertised address is not automatically discovered.
 - **Detached launchers:** acknowledgement means in accepted responsibility, not
   that OAuth succeeded. Later launch/transport errors are recorded locally and

@@ -65,6 +65,8 @@ func run(ctx context.Context, args []string) error {
 			return fmt.Errorf("browser hook expects one URL")
 		}
 		return browse(ctx, args[1])
+	case "open":
+		return open(ctx, args[1:])
 	case "connect":
 		return connect(args[1:])
 	case "attach":

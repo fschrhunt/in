@@ -53,16 +53,18 @@ func browse(ctx context.Context, raw string) error {
 	owners := ""
 	rclone := false
 	if ep != nil {
-		owners, err = browserOwners()
-		if err != nil {
-			return err
-		}
 		if ep.Direct {
-			owners, err = rcloneOwner(raw, *ep, owners)
+			owners, err = browserOwners()
 			if err != nil {
 				return err
 			}
+			owners, err = rcloneOwner(raw, *ep, owners)
 			rclone = true
+		} else {
+			owners, err = callbackOwner(*ep)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	tuple, err := connection(ctx)
@@ -239,7 +241,7 @@ func remoteRelay(parent context.Context) error {
 func remotePipe(parent context.Context, host, port, owners string) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	if _, err := parseOwners(owners); err != nil {
+	if err := validOwnership(owners); err != nil {
 		return err
 	}
 	if err := validEndpoint(host, port); err != nil {
@@ -260,7 +262,7 @@ func remotePipe(parent context.Context, host, port, owners string) error {
 		}
 		if listener != nil {
 			if !listenerOwned(listener.inode, owners) {
-				return fmt.Errorf("callback listener does not belong to the requesting CLI")
+				return fmt.Errorf("callback listener no longer matches the browser request")
 			}
 			c, err := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(ctx, "tcp", net.JoinHostPort(listener.host, port))
 			if err == nil {
@@ -273,6 +275,9 @@ func remotePipe(parent context.Context, host, port, owners string) error {
 				selected = listener
 				break
 			}
+		}
+		if listener == nil && strings.HasPrefix(owners, "socket:") {
+			return fmt.Errorf("requested callback listener has closed")
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("remote callback listener did not become ready")

@@ -84,7 +84,7 @@ url = 'https://provider.invalid/authorize?response_type=code&client_id=fixture&s
 if len(sys.argv) > 2 and sys.argv[2] == 'detached':
     result = subprocess.run([sys.executable, '-c', 'import os,subprocess,sys; subprocess.run([os.environ["BROWSER"],sys.argv[1]],check=True)', url], start_new_session=True, capture_output=True)
 else:
-    result = subprocess.run([os.environ['BROWSER'], url], capture_output=True)
+    result = subprocess.run(['xdg-open' if len(sys.argv) > 2 and sys.argv[2] == 'xdg' else os.environ['BROWSER'], url], capture_output=True)
 if result.returncode:
     print('browser hook rejected request', file=sys.stderr)
     sys.exit(1)
@@ -267,6 +267,13 @@ print('dev server still reachable')
         self.assertEqual(result.stdout.strip(), 'authenticated fixture')
         self.assert_browser_completed()
 
+    def test_native_opener_uses_the_same_callback_path(self):
+        """A tool that calls xdg-open directly needs no BROWSER integration of its own."""
+        port = self.free_port('127.0.0.2')
+        result = self.ssh(shlex.quote(str(self.root / 'login')) + f' {port} xdg')
+        self.assertEqual(result.stdout.strip(), 'authenticated fixture')
+        self.assert_browser_completed()
+
     def test_stop_closes_active_remote_callback(self):
         """Stopping a hanging callback must reap its remote helper through an SSH master."""
         marker = self.root / 'accepted'
@@ -321,8 +328,8 @@ with socket.socket() as listener:
             with socket.create_connection(('127.0.0.1', port), timeout=1): pass
             self.assertFalse((self.local / 'browser-result').exists())
 
-    def test_unrelated_remote_listener_receives_no_connection(self):
-        """An old same-account listener cannot receive a newer CLI's callback."""
+    def test_late_unrelated_remote_listener_receives_no_connection(self):
+        """A listener absent from the advertised endpoint cannot qualify through unrelated ancestors."""
         with socket.socket() as unrelated:
             unrelated.bind(('127.0.0.2', 0))
             unrelated.listen()
@@ -414,7 +421,7 @@ with socket.socket() as listener:
                 watchers.append(conn)
                 conn.settimeout(2)
                 conn.connect(str(paths[0]))
-                conn.sendall(b'{"version":1,"kind":"watch"}\n')
+                conn.sendall(b'{"version":2,"kind":"watch"}\n')
                 self.assertIn(b'"ready"', conn.recv(512))
             self.run_local(str(ROOT / 'bin/in'), 'stop', env=dict(self.env, IN_HOME=str(self.remote)))
             for conn in watchers: self.assertEqual(conn.recv(1), b'')

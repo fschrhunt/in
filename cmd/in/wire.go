@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-const wireVersion = 1
+const wireVersion = 2
 const requestLimit = 32
 
 // message carries browser requests and acknowledgements, never callback payloads.

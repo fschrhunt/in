@@ -56,11 +56,24 @@ func (b *bridge) prepare(raw, owners string, rclone bool) (func(), error) {
 		if ep.Direct && (!rclone || !rcloneAuthURL(raw)) {
 			return nil, unrecognizedLogin()
 		}
-		if _, err := parseOwners(owners); err != nil {
+		if err := validOwnership(owners); err != nil {
 			return nil, err
 		}
 		b.mu.Lock()
 		defer b.mu.Unlock()
+		// A different pinned socket at the same unambiguous endpoint proves the old listener closed.
+		// Reclaim its idle lease immediately so cancelling login does not block the next attempt.
+		pinned, _ := socketIdentity(owners)
+		for old := range b.routes {
+			prior, _ := socketIdentity(old.owners)
+			if pinned != nil && prior != nil && old.endpoint.Port == ep.Port && pinned.host == prior.host && pinned.inode != prior.inode && len(old.slots) == 0 {
+				old.cancel()
+				for _, listener := range old.listeners {
+					listener.Close()
+				}
+				delete(b.routes, old)
+			}
+		}
 		if len(b.routes) >= requestLimit {
 			return nil, fmt.Errorf("too many active callback routes")
 		}
@@ -93,7 +106,7 @@ func (b *bridge) prepare(raw, owners string, rclone bool) (func(), error) {
 		b.wg.Add(1)
 		go func() {
 			defer b.wg.Done()
-			if err := openBrowser(b.ctx, raw); err != nil {
+			if err := b.openBrowser(r, raw); err != nil && b.ctx.Err() == nil {
 				if r != nil {
 					r.cancel()
 				}
@@ -140,12 +153,21 @@ func (b *bridge) accept(r *route, l net.Listener) {
 		if err != nil {
 			return
 		}
+		// Serialize admission with stale-lease replacement; active responses must not be displaced.
+		b.mu.Lock()
+		if r.ctx.Err() != nil {
+			b.mu.Unlock()
+			c.Close()
+			return
+		}
 		select {
 		case r.slots <- struct{}{}:
 		default:
+			b.mu.Unlock()
 			c.Close()
 			continue
 		}
+		b.mu.Unlock()
 		b.wg.Add(1)
 		go func() {
 			defer b.wg.Done()
@@ -224,9 +246,9 @@ func (b *bridge) close() {
 	b.wg.Wait()
 }
 
-// openBrowser invokes a fixed executable without interpreting the URL as shell syntax.
-func openBrowser(parent context.Context, raw string) error {
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+// openBrowser serializes opener startup with route replacement, without cancelling an already launched opener on callback completion.
+func (b *bridge) openBrowser(r *route, raw string) error {
+	ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
 	defer cancel()
 	command := os.Getenv("IN_BROWSER_EXEC")
 	if command == "" {
@@ -239,7 +261,14 @@ func openBrowser(parent context.Context, raw string) error {
 	cmd := exec.CommandContext(ctx, command, raw)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	if cmd.Run() != nil {
+	b.mu.Lock()
+	if r != nil && r.ctx.Err() != nil {
+		b.mu.Unlock()
+		return nil
+	}
+	err := cmd.Start()
+	b.mu.Unlock()
+	if err != nil || cmd.Wait() != nil {
 		return fmt.Errorf("could not open the laptop browser")
 	}
 	return nil
