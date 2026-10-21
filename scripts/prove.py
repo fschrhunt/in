@@ -313,7 +313,8 @@ class Proof:
             if self.etserver.poll() is not None or time.monotonic() >= deadline:
                 raise RuntimeError("private ET server did not become ready")
             time.sleep(0.05)
-        if not (self.root / "et.fifo").is_fifo() or self.etserver.poll() is not None:
+        # ET calls this Unix IPC socket a fifo; it is not a POSIX named pipe.
+        if not (self.root / "et.fifo").is_socket() or self.etserver.poll() is not None:
             raise RuntimeError("private ET server did not become ready")
         tools = self.mac + "/tools"
         wrapper = self.root / "ssh-et"
