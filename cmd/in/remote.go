@@ -70,10 +70,18 @@ func browse(ctx context.Context, raw string) error {
 			return err
 		}
 	}
-	path := filepath.Join(root, "r-"+digest(tuple)+".sock")
 	var conn net.Conn
 	deadline := time.Now().Add(3 * time.Second)
 	for {
+		// An early browser hook can precede relay registration. Follow only the
+		// captured SSH tuple until it binds, without selecting another terminal.
+		if canonicalTuple(tuple) {
+			tuple, err = sessionIdentity(root, tuple)
+			if err != nil {
+				return err
+			}
+		}
+		path := filepath.Join(root, "r-"+digest(tuple)+".sock")
 		conn, err = net.DialTimeout("unix", path, 200*time.Millisecond)
 		if err == nil {
 			break

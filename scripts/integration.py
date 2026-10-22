@@ -164,9 +164,9 @@ ForceCommand {self.root}/session
         path.chmod(0o700)
 
     def free_port(self, host):
-        """Choose a disposable fixture port before either side reserves it."""
+        """Choose a fixture port unused on both simulated IPv4 hosts for callbacks."""
         with socket.socket() as sock:
-            sock.bind((host, 0))
+            sock.bind(('0.0.0.0' if host == '127.0.0.2' else host, 0))
             return sock.getsockname()[1]
 
     def end_server(self):
@@ -204,6 +204,16 @@ ForceCommand {self.root}/session
                 if time.monotonic() > deadline: self.fail('owned callback port leaked')
                 time.sleep(.02)
         self.assertEqual(self.ssh('printf preserved').stdout, 'preserved')
+
+    def test_login_waits_for_session_registration(self):
+        """A browser hook started before relay registration follows its original SSH tuple."""
+        helper = self.root / 'remote-in'
+        helper.write_text(helper.read_text().replace(
+            '#!/bin/sh\n', '#!/bin/sh\nif [ "$1" = relay ]; then sleep .3; fi\n', 1))
+        port = self.free_port('127.0.0.2')
+        result = self.ssh(shlex.quote(str(self.root / 'login')) + f' {port} late')
+        self.assertEqual(result.stdout.strip(), 'authenticated fixture')
+        self.assert_browser_completed()
 
     def test_mosh_uses_normal_shell_integration(self):
         """The installed Mosh function retains the authenticated route through handoff."""
