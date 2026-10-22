@@ -9,7 +9,8 @@ browser request or uses an observable callback.
 
 Run `./x check`. For transport, session routing or setup changes, also run
 `./x integration`. These use isolated fixtures to cover callback bytes, startup
-order, port conflicts, privacy, ambiguous sessions, SSH/Mosh/tmux and failures.
+order (including browser requests before SSH session registration), port conflicts,
+privacy, ambiguous sessions, SSH/Mosh/tmux and failures.
 CI runs these checks and `./x release-check`; it needs no personal accounts.
 
 For native terminal clients on Linux, run `./x clients`. It uses disposable SSH

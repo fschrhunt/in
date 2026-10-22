@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Follow the original SSH session's registration when login starts before its
+  relay is ready, so the first browser request does not wait on a stale socket.
 - Share callback/privacy logic behind `callbackTransport.Open`. Bind SSH relays to
   logical IDs stored per ControlPath; retain up to 128 exact remote
   tuple aliases for surviving Mosh shells. Refresh only after an authenticated hook.
