@@ -3,8 +3,9 @@
 __pycache__/
 *.pyc
 
-# Agent worktrees: claude -w, and codex/opencode/pi -w
+# Agent worktrees: claude -w, codex/opencode/pi -w, and ask --worktree
 /.claude/worktrees/
 /.codex/worktrees/
 /.opencode/worktrees/
 /.pi/worktrees/
+/.ask/worktrees/
