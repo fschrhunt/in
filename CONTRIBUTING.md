@@ -34,3 +34,7 @@ Update affected docs and [the changelog](CHANGELOG.md). Keep tests offline and
 isolated from real SSH configuration and credentials. See [release setup](docs/contributing/releases.md)
 for GitHub settings and [security](SECURITY.md) for reporting guidance.
 Contributions are licensed under [MIT](LICENSE).
+
+## Dependency updates
+
+Dependabot groups GitHub Actions updates into one weekly pull request. Review required checks before merging.
