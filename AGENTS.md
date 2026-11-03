@@ -4,7 +4,8 @@ in makes remote CLI browser login work with a local browser. Keep it small.
 
 - Preserve unrelated changes and never expose secrets.
 - Prefer direct implementations; no general plugin framework without evidence.
-- Comment modules and functions with concise purpose and contract notes.
+- Document public contracts and non-obvious constraints or reasons.
+  Omit comments that merely restate clear names or code.
   Update affected comments and documentation with each behavior change.
 - Write focused, offline tests for meaningful behavior. Use temporary homes,
   fake browser commands and controlled listeners; never personal credentials.

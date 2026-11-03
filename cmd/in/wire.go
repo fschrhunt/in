@@ -55,7 +55,6 @@ func (w *wire) receive() (message, error) {
 	return m, nil
 }
 
-// send writes a complete frame under a single lock.
 func (w *wire) send(m message) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -63,7 +62,6 @@ func (w *wire) send(m message) error {
 	return json.NewEncoder(w.out).Encode(m)
 }
 
-// boundedBuffer captures a small fixed diagnostic without allowing unbounded subprocess output.
 type boundedBuffer struct{ bytes.Buffer }
 
 // Write discards output beyond 4096 bytes while satisfying the subprocess writer contract.
