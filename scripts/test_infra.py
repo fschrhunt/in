@@ -1,11 +1,14 @@
 """Pin failure cases that would otherwise allow broken docs or release selection."""
 
 from pathlib import Path
+from runpy import run_path
 import tempfile
 import unittest
 
 from check_docs import check
-from release import release_notes
+
+release_notes = run_path(
+    str(Path(__file__).resolve().parents[1] / ".github/release/release.py"))["release_notes"]
 
 
 class ReleaseNotesTests(unittest.TestCase):

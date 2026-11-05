@@ -62,11 +62,11 @@ case "$task" in
     ;;
   release-check)
     [ "$#" -le 1 ] || usage
-    exec python3 scripts/release.py check "$@"
+    exec python3 .github/release/release.py check "$@"
     ;;
   dist)
     [ "$#" -eq 1 ] || usage
-    exec python3 scripts/release.py dist "$1"
+    exec python3 .github/release/release.py dist "$1"
     ;;
   *) usage ;;
 esac
