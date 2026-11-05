@@ -12,6 +12,10 @@ temporary output. These checks do not validate runtime behavior on all targets.
 Archives contain the executable, installer, license, README, documentation and policies.
 Source builds report `dev`; release builds embed their `vX.Y.Z` version.
 
+The shared archive builder lives in `.github/release/release.py`; both local
+checks and release CI invoke it through `./x`. General developer checks remain
+under `scripts/` and are also available through `./x`.
+
 For local versioned packaging, add a nonempty `## X.Y.Z` section to
 [CHANGELOG.md](../../CHANGELOG.md), then run `./x dist vX.Y.Z`. It refuses to
 overwrite `dist/vX.Y.Z` and never creates a tag or publishes anything.

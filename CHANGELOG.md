@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep the shared release archive builder in `.github/release/`, with local and
+  CI packaging still available through `./x release-check` and `./x dist`.
+
 - Follow the original SSH session's registration when login starts before its
   relay is ready, so the first browser request does not wait on a stale socket.
 - Share callback/privacy logic behind `callbackTransport.Open`. Bind SSH relays to
